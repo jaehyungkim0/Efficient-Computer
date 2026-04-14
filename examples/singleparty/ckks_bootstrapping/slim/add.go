@@ -4,6 +4,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"math"
@@ -11,10 +12,10 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/tuneinsight/lattigo/v6/circuits/ckks/polynomial"
 	"github.com/tuneinsight/lattigo/v6/circuits/ckks/bootstrapping"
 	"github.com/tuneinsight/lattigo/v6/circuits/ckks/dft"
 	"github.com/tuneinsight/lattigo/v6/circuits/ckks/mod1"
+	"github.com/tuneinsight/lattigo/v6/circuits/ckks/polynomial"
 	"github.com/tuneinsight/lattigo/v6/core/rlwe"
 	"github.com/tuneinsight/lattigo/v6/ring"
 	"github.com/tuneinsight/lattigo/v6/schemes/ckks"
@@ -64,9 +65,9 @@ func firstKPrimes(k uint64) []uint64 {
 func Moduli(n uint64, k uint64) []uint64 {
 	list := firstKPrimes(k)
 	result := []uint64{}
-	for i:=0; i<int(k); i++ {
+	for i := 0; i < int(k); i++ {
 		tmp := list[i]
-		for tmp * list[i] <= n {
+		for tmp*list[i] <= n {
 			tmp *= list[i]
 		}
 		result = append(result, tmp)
@@ -172,10 +173,10 @@ func constructPolynomial(n int, deg int) []complex128 {
 
 	// Step 3: Interpolate to find the coefficients, using DFT or FFT as needed
 	coefficients := interpolate(values)
-	result := make([]complex128, deg + 1)
+	result := make([]complex128, deg+1)
 	for i := 0; i <= deg; i++ {
 		if i >= n {
-			result[i] = complex(0,0)
+			result[i] = complex(0, 0)
 		} else {
 			result[i] = coefficients[i]
 		}
@@ -184,15 +185,14 @@ func constructPolynomial(n int, deg int) []complex128 {
 }
 
 func cleanPolynomial(n int, deg int) []complex128 {
-	coefficients := make([]complex128, deg + 1)
+	coefficients := make([]complex128, deg+1)
 	for i := 0; i <= deg; i++ {
-		coefficients[i] = complex(0,0)
+		coefficients[i] = complex(0, 0)
 	}
-	coefficients[1] = complex(1.0 / float64(n) + 1.0, 0)
-	coefficients[n+1] = complex(-1.0 / float64(n), 0)
+	coefficients[1] = complex(1.0/float64(n)+1.0, 0)
+	coefficients[n+1] = complex(-1.0/float64(n), 0)
 	return coefficients
 }
-
 
 func HermiteInterpolation(n int, deg int) []complex128 {
 	z := cmplx.Exp(2 * math.Pi * 1i / complex(float64(n), 0))
@@ -221,7 +221,7 @@ func HermiteInterpolation(n int, deg int) []complex128 {
 	for i := 0; i < 2*n; i++ {
 		coeffs[i] = list[i]
 	}
-	for i := 2*n; i <= deg; i++ {
+	for i := 2 * n; i <= deg; i++ {
 		coeffs[i] = complex(0.0, 0.0)
 	}
 	return coeffs
@@ -265,6 +265,287 @@ func solveLinearSystem(A [][]complex128, b []complex128) []complex128 {
 	return x
 }
 
+type MultiPrecisionAdder struct {
+	params    ckks.Parameters
+	eval      *bootstrapping.Evaluator
+	polyEval  *polynomial.Evaluator
+	limbBits  int
+	limbCount int
+	mods      uint64
+	degEval   int
+	mapping   map[int][]int
+}
+
+type AdditionResult struct {
+	Ciphertexts []*rlwe.Ciphertext
+	Bootstraps  int
+}
+
+func NewMultiPrecisionAdder(params ckks.Parameters, eval *bootstrapping.Evaluator, evk *bootstrapping.EvaluationKeys, limbBits, totalBits int) (*MultiPrecisionAdder, error) {
+	if limbBits <= 0 {
+		return nil, errors.New("limbBits must be positive")
+	}
+	if totalBits <= 0 || totalBits%limbBits != 0 {
+		return nil, errors.New("totalBits must be a positive multiple of limbBits")
+	}
+	if limbBits >= 63 {
+		return nil, errors.New("limbBits must be smaller than 63")
+	}
+
+	limbCount := totalBits / limbBits
+	mods := uint64(1 << limbBits)
+	degEval := 2*int(mods) - 1
+
+	pos := make([]int, params.MaxSlots())
+	for i := range pos {
+		pos[i] = i
+	}
+
+	return &MultiPrecisionAdder{
+		params:    params,
+		eval:      eval,
+		polyEval:  polynomial.NewEvaluator(params, ckks.NewEvaluator(params, evk)),
+		limbBits:  limbBits,
+		limbCount: limbCount,
+		mods:      mods,
+		degEval:   degEval,
+		mapping:   map[int][]int{0: pos},
+	}, nil
+}
+
+func (a *MultiPrecisionAdder) DecomposeUint64(values []uint64) [][]complex128 {
+	digits := make([][]complex128, a.limbCount)
+	for i := range digits {
+		digits[i] = make([]complex128, len(values))
+	}
+
+	mask := uint64(a.mods - 1)
+	for slot, value := range values {
+		num := value
+		for limb := 0; limb < a.limbCount; limb++ {
+			digits[limb][slot] = complex(float64(num&mask), 0)
+			num >>= a.limbBits
+		}
+	}
+
+	return digits
+}
+
+func (a *MultiPrecisionAdder) EncryptDigits(encoder *ckks.Encoder, encryptor *rlwe.Encryptor, digits [][]complex128, level int) ([]*rlwe.Ciphertext, error) {
+	if len(digits) != a.limbCount {
+		return nil, fmt.Errorf("expected %d digit vectors, got %d", a.limbCount, len(digits))
+	}
+
+	ciphertexts := make([]*rlwe.Ciphertext, a.limbCount)
+	for i := range digits {
+		pt := ckks.NewPlaintext(a.params, level)
+		if err := encoder.Encode(digits[i], pt); err != nil {
+			return nil, err
+		}
+		ct, err := encryptor.EncryptNew(pt)
+		if err != nil {
+			return nil, err
+		}
+		ciphertexts[i] = ct
+	}
+
+	return ciphertexts, nil
+}
+
+func (a *MultiPrecisionAdder) bootstrap(ct *rlwe.Ciphertext) (*rlwe.Ciphertext, float64, int, error) {
+	var err error
+	bootCount := 1
+
+	if ct, err = a.eval.SlotsToCoeffs(ct, nil); err != nil {
+		return nil, 0, bootCount, err
+	}
+	if ct, _, err = a.eval.ScaleDown(ct); err != nil {
+		return nil, 0, bootCount, err
+	}
+
+	zeroScale := ct.Scale.Float64()
+	targetScale := float64(a.params.RingQ().ModulusAtLevel[0].Uint64())
+
+	if ct, err = a.eval.ModUp(ct); err != nil {
+		return nil, 0, bootCount, err
+	}
+
+	real, imag, err := a.eval.CoeffsToSlots(ct)
+	if err != nil {
+		return nil, 0, bootCount, err
+	}
+	if imag, err = a.eval.EvalModAndScale(real, 2*math.Pi); err != nil {
+		return nil, 0, bootCount, err
+	}
+	if real, err = a.eval.EvalElseAndScale(real, 2*math.Pi); err != nil {
+		return nil, 0, bootCount, err
+	}
+	if err = a.eval.Evaluator.Mul(imag, 1i, imag); err != nil {
+		return nil, 0, bootCount, err
+	}
+	if err = a.eval.Evaluator.Add(real, imag, ct); err != nil {
+		return nil, 0, bootCount, err
+	}
+
+	polys, err := polynomial.NewPolynomialVector([]bignum.Polynomial{
+		bignum.NewPolynomial(0, HermiteInterpolation(int(a.mods), a.degEval), nil),
+	}, a.mapping)
+	if err != nil {
+		return nil, 0, bootCount, err
+	}
+
+	if ct, err = a.polyEval.Evaluate(ct, polys, a.params.DefaultScale()); err != nil {
+		return nil, 0, bootCount, err
+	}
+
+	return ct, targetScale / zeroScale, bootCount, nil
+}
+
+func (a *MultiPrecisionAdder) Add(lhs, rhs []*rlwe.Ciphertext) (*AdditionResult, error) {
+	if len(lhs) != a.limbCount || len(rhs) != a.limbCount {
+		return nil, fmt.Errorf("expected %d limbs on both sides, got lhs=%d rhs=%d", a.limbCount, len(lhs), len(rhs))
+	}
+
+	out := make([]*rlwe.Ciphertext, a.limbCount)
+	for i := 0; i < a.limbCount; i++ {
+		ct, err := a.eval.AddNew(lhs[i], rhs[i])
+		if err != nil {
+			return nil, err
+		}
+		out[i] = ct
+	}
+
+	_, scaleDiff, bootCount, err := a.bootstrap(out[0].CopyNew())
+	if err != nil {
+		return nil, err
+	}
+
+	var carry *rlwe.Ciphertext
+	for i := range out {
+		current := out[i].CopyNew()
+		if i != 0 {
+			if err := a.eval.Evaluator.Add(current, carry, current); err != nil {
+				return nil, err
+			}
+		}
+
+		remainder := current.CopyNew()
+		if err := a.eval.Mul(current, scaleDiff/float64(a.mods), current); err != nil {
+			return nil, err
+		}
+		if err := a.eval.Rescale(current, current); err != nil {
+			return nil, err
+		}
+
+		current, ratio, used, err := a.bootstrap(current)
+		if err != nil {
+			return nil, err
+		}
+		bootCount += used
+		if ratio != 0 {
+			scaleDiff = ratio
+		}
+		out[i] = current
+
+		if i != len(out)-1 {
+			if err := a.eval.Evaluator.Sub(remainder, current, remainder); err != nil {
+				return nil, err
+			}
+			if err := a.eval.Evaluator.Mul(remainder, scaleDiff/float64(a.mods*a.mods), remainder); err != nil {
+				return nil, err
+			}
+			if err := a.eval.Rescale(remainder, remainder); err != nil {
+				return nil, err
+			}
+
+			remainder, ratio, used, err = a.bootstrap(remainder)
+			if err != nil {
+				return nil, err
+			}
+			bootCount += used
+			if ratio != 0 {
+				scaleDiff = ratio
+			}
+			carry = remainder
+		}
+	}
+
+	return &AdditionResult{Ciphertexts: out, Bootstraps: bootCount}, nil
+}
+
+func runAdditionExperiment(params ckks.Parameters, encoder *ckks.Encoder, encryptor *rlwe.Encryptor, decryptor *rlwe.Decryptor, adder *MultiPrecisionAdder) error {
+	totalMaxErr := 0.0
+	totalMeanErr := 0.0
+	numIter := 10
+
+	fmt.Printf("The modulus size in bits: %f\n", math.Log2(float64(adder.mods)))
+
+	for iter := 0; iter < numIter; iter++ {
+		large1 := make([]uint64, params.MaxSlots())
+		large2 := make([]uint64, params.MaxSlots())
+		largeWant := make([]uint64, params.MaxSlots())
+
+		rand.Seed(time.Now().UnixNano())
+		for i := range large1 {
+			large1[i] = rand.Uint64()
+			large2[i] = rand.Uint64()
+			largeWant[i] = large1[i] + large2[i]
+		}
+
+		digits1 := adder.DecomposeUint64(large1)
+		digits2 := adder.DecomposeUint64(large2)
+		digitsWant := adder.DecomposeUint64(largeWant)
+
+		level := adder.limbCount + 2
+		cvec1, err := adder.EncryptDigits(encoder, encryptor, digits1, level)
+		if err != nil {
+			return err
+		}
+		cvec2, err := adder.EncryptDigits(encoder, encryptor, digits2, level)
+		if err != nil {
+			return err
+		}
+
+		start := time.Now()
+		result, err := adder.Add(cvec1, cvec2)
+		if err != nil {
+			return err
+		}
+		elapsed := time.Since(start)
+
+		fmt.Printf("Addition time: %s\n", elapsed)
+		fmt.Println("Number of bootstrapping used: ", result.Bootstraps)
+
+		maxErr := 0.0
+		meanErr := 0.0
+		for i := 0; i < adder.limbCount; i++ {
+			vecTest := printDebug(params, result.Ciphertexts[i], digitsWant[i], decryptor, encoder)
+			for j := 0; j < result.Ciphertexts[i].Slots(); j++ {
+				tmp := vecTest[j]
+				thisErrReal := math.Abs(real(tmp) - real(digitsWant[i][j]))
+				thisErrImag := math.Abs(imag(tmp) - imag(digitsWant[i][j]))
+				thisErr := math.Sqrt(thisErrReal*thisErrReal + thisErrImag*thisErrImag)
+				meanErr += thisErr
+				maxErr = math.Max(maxErr, thisErr)
+			}
+		}
+
+		meanErr /= float64(adder.limbCount * result.Ciphertexts[0].Slots())
+		fmt.Println("Max Error in Log 2: ", math.Log2(maxErr))
+		fmt.Println("Mean Error in Log 2: ", math.Log2(meanErr))
+		totalMaxErr = math.Max(maxErr, totalMaxErr)
+		totalMeanErr += meanErr
+	}
+
+	totalMeanErr /= float64(numIter)
+	fmt.Println("-----------------------------------")
+	fmt.Println()
+	fmt.Println("Total Max Error in Log 2", math.Log2(totalMaxErr))
+	fmt.Println("Total Mean Error in Log 2", math.Log2(totalMeanErr))
+
+	return nil
+}
+
 func main() {
 
 	flag.Parse()
@@ -290,11 +571,11 @@ func main() {
 
 	LogDefaultScale := 36
 
-	q0 := []int{36}                                    // 3) ScaleDown & 4) ModUp
-	qiSlotsToCoeffs := []int{28, 28}               // 1) SlotsToCoeffs
+	q0 := []int{36}                  // 3) ScaleDown & 4) ModUp
+	qiSlotsToCoeffs := []int{28, 28} // 1) SlotsToCoeffs
 	qiCircuitSlots := []int{36, 36, 36, 36, 36, 36}
 	qiEvalMod := []int{36, 36, 36, 36, 36, 36, 36, 36}
-	qiCoeffsToSlots := []int{32, 32}           // 5) CoeffsToSlots
+	qiCoeffsToSlots := []int{32, 32} // 5) CoeffsToSlots
 
 	LogQ := append(q0, qiSlotsToCoeffs...)
 	LogQ = append(LogQ, qiCircuitSlots...)
@@ -302,10 +583,10 @@ func main() {
 	LogQ = append(LogQ, qiCoeffsToSlots...)
 
 	params, err := ckks.NewParametersFromLiteral(ckks.ParametersLiteral{
-		LogN:            LogN,                      // Log2 of the ring degree
-		LogQ:            LogQ,                      // Log2 of the ciphertext modulus
+		LogN:            LogN,              // Log2 of the ring degree
+		LogQ:            LogQ,              // Log2 of the ciphertext modulus
 		LogP:            []int{36, 36, 36}, // Log2 of the key-switch auxiliary prime moduli
-		LogDefaultScale: LogDefaultScale,           // Log2 of the scale
+		LogDefaultScale: LogDefaultScale,   // Log2 of the scale
 		Xs:              ring.Ternary{H: 192},
 	})
 
@@ -336,7 +617,7 @@ func main() {
 		Mod1Degree:      30,               // Depth 5
 		DoubleAngle:     3,                // Depth 3
 		K:               16,               // With EphemeralSecretWeight = 32 and 2^{15} slots, ensures < 2^{-138.7} failure probability
-		LogMessageRatio: 0,               // q/|m| = 1
+		LogMessageRatio: 0,                // q/|m| = 1
 		Mod1InvDegree:   0,                // Depth 0
 	}
 
@@ -400,295 +681,19 @@ func main() {
 	}
 	fmt.Println("Done")
 
-	//========================
-	//=== 4) BOOTSTRAPPING ===
-	//========================
-	var zeroScale float64
-	var targetScale float64
-
-	// Instantiates the bootstrapper
 	var eval *bootstrapping.Evaluator
 	if eval, err = bootstrapping.NewEvaluator(btpParams, evk); err != nil {
 		panic(err)
 	}
 
-	// Define Computer Parameters
-	l := 4
-	k := 64
-
-	// Define Modulo Parameters
-	n := 16
-	mods := uint64(1 << l)
-	deg_eval := 2*n-1
-	sum := math.Log2(float64(mods))
-	fmt.Printf("The modulus size in bits: %f\n", float64(sum))
-
-	total_max_err := 0.0
-	total_mean_err := 0.0
-	num_iter := 10
-
-	for iter := 0; iter < num_iter; iter++ {
-
-	pvec1 := make([]*rlwe.Plaintext, k/l)
-	pvec2 := make([]*rlwe.Plaintext, k/l)
-
-	large1 := make([]uint64, params.MaxSlots())
-	large2 := make([]uint64, params.MaxSlots())
-	largeWant := make([]uint64, params.MaxSlots())
-
-	rand.Seed(time.Now().UnixNano())
-	
-	for i := range large1 {
-	if (k == 64) {
-	large1[i] = rand.Uint64()
-	large2[i] = rand.Uint64()
-	largeWant[i] = large1[i] + large2[i]
-	} else {
-	large1[i] = rand.Uint64() % (uint64(1) << k)
-	large2[i] = rand.Uint64() % (uint64(1) << k)
-	largeWant[i] = (large1[i] + large2[i]) % (uint64(1) << k)
-	}
-	}
-	
-	vec1 := make([][]complex128, k/l)
-	vec2 := make([][]complex128, k/l)
-	vecWant := make([][]complex128, k/l)
-	
-	for i := range vec1 {
-	vec1[i] = make([]complex128, params.MaxSlots())
-	vec2[i] = make([]complex128, params.MaxSlots())
-	vecWant[i] = make([]complex128, params.MaxSlots())
-	for j := range vec1[i] {
-	
-	// num1
-	num1 := large1[j]
-	// Decompose into base-16 digits
-	digits1 := make([]uint64, k/l)
-	for t := 0; t < k/l; t++ {
-		digits1[t] = num1 & 0xF
-		num1 >>= 4                                       // Shift right by 4 bits
-	}
-	vec1[i][j] = complex(float64(digits1[i]), 0)
-	
-	// num2
-	num2 := large2[j]
-	// Decompose into base-16 digits
-	digits2 := make([]uint64, k/l)
-	for t := 0; t < k/l; t++ {
-		digits2[t] = num2 & 0xF
-		num2 >>= 4                                       // Shift right by 4 bits
-	}
-	vec2[i][j] = complex(float64(digits2[i]), 0)
-
-	// numWant
-	numWant := largeWant[j]
-	digitsWant := make([]uint64, k/l)
-	for t := 0; t < k/l; t++ {
-		digitsWant[t] = numWant & 0xF
-		numWant >>= 4                                       // Shift right by 4 bits
-	}
-	vecWant[i][j] = complex(float64(digitsWant[i]), 0)
-	}
-	}
-	
-	for i := range vecWant {
-	// We encrypt at level 0
-	pvec1[i] = ckks.NewPlaintext(params, SlotsToCoeffsParameters.LevelQ + 2)
-	pvec2[i] = ckks.NewPlaintext(params, SlotsToCoeffsParameters.LevelQ + 2)
-	if err := encoder.Encode(vec1[i], pvec1[i]); err != nil {
-		panic(err)
-	}
-	if err := encoder.Encode(vec2[i], pvec2[i]); err != nil {
-		panic(err)
-	}
-	}
-
-	cvec1 := make([]*rlwe.Ciphertext, k/l)
-	cvec2 := make([]*rlwe.Ciphertext, k/l)
-	cvec := make([]*rlwe.Ciphertext, k/l)
-
-	for i := 0; i < k/l; i++ {
-	// Encrypt
-	cvec1[i], err = encryptor.EncryptNew(pvec1[i])
+	adder, err := NewMultiPrecisionAdder(params, eval, evk, 4, 64)
 	if err != nil {
 		panic(err)
 	}
-	cvec2[i], err = encryptor.EncryptNew(pvec2[i])
-	if err != nil {
-		panic(err)
-	}	
-	}
-	start := time.Now()
-	
-	for i := 0; i < k/l; i++ {
-	cvec[i], err = eval.AddNew(cvec1[i], cvec2[i])
-	}
-	
-	var ciphertext *rlwe.Ciphertext
-	var ciphertext2 *rlwe.Ciphertext
 
-	// Define mapping
-	pos := make([][]int, 1)
-	for i:=0; i < 1; i++ {
-		pos[i] = make([]int, cvec[0].Slots())
-		for j:=0; j < cvec[0].Slots(); j++ {
-			pos[i][j] = (cvec[0].Slots()) * i + j
-		}
-	}
-
-	mapping := make(map[int][]int)
-	for i:=0; i < 1; i++ {
-		mapping[i] = pos[i]
-	}
-
-	boot_count := 0
-	Bootstrap := func() {
-	boot_count += 1
-	// Step 1 : SlotsToCoeffs (Homomorphic decoding)
-	if ciphertext, err = eval.SlotsToCoeffs(ciphertext, nil); err != nil {
+	if err := runAdditionExperiment(params, encoder, encryptor, decryptor, adder); err != nil {
 		panic(err)
 	}
-
-	// Step 2: scale to q/|m|
-	if ciphertext, _, err = eval.ScaleDown(ciphertext); err != nil {
-		panic(err)
-	}
-
-	zeroScale = ciphertext.Scale.Float64()
-	targetScale = float64(params.RingQ().ModulusAtLevel[0].Uint64())
-
-	// Step 3 : Extend the basis from q to Q
-	if ciphertext, err = eval.ModUp(ciphertext); err != nil {
-		panic(err)
-	}
-
-	// Step 4 : CoeffsToSlots (Homomorphic encoding)
-	// Note: expects the result to be given in bit-reversed order
-	// Also, we need the homomorphic encoding to split the real and
-	// imaginary parts into two pure real ciphertexts, because the
-	// homomorphic modular reduction is only defined on the reals.
-	// The `imag` ciphertext can be ignored if the original input
-	// is purely real.
-	var real, imag *rlwe.Ciphertext
-	if real, imag, err = eval.CoeffsToSlots(ciphertext); err != nil {
-		panic(err)
-	}
-
-	// Step 5 : EvalMod (Homomorphic modular reduction)
-	if imag, err = eval.EvalModAndScale(real, 2 * math.Pi); err != nil {
-		panic(err)
-	}
-
-	if real, err = eval.EvalElseAndScale(real, 2 * math.Pi); err != nil {
-		panic(err)
-	}
-
-	// Recombines the real and imaginary part
-	if err = eval.Evaluator.Mul(imag, 1i, imag); err != nil {
-		panic(err)
-	}
-
-	if err = eval.Evaluator.Add(real, imag, ciphertext); err != nil {
-		panic(err)
-	}
-
-	// Evaluator
-	opeval := ckks.NewEvaluator(params, evk)
-	// Instantiates the polynomial evaluator
-	polyEval := polynomial.NewEvaluator(params, opeval)
-
-	// Step 6 : Polynomial Evaluation
-	var polys polynomial.PolynomialVector
-	eval_poly_vec := make([]bignum.Polynomial, 1)
-	for i:=0; i < 1; i++ {
-		eval_poly_vec[i] = bignum.NewPolynomial(0, HermiteInterpolation(int(mods), deg_eval), nil)
-	}
-        if polys, err = polynomial.NewPolynomialVector(eval_poly_vec, mapping); err != nil {
-                panic(err)
-        }
-	if ciphertext, err = polyEval.Evaluate(ciphertext, polys, params.DefaultScale()); err != nil {
-		panic(err)
-	}
-	}
-
-	elapsed := time.Since(start)
-	
-	ciphertext = cvec[0].CopyNew()
-	Bootstrap()
-	scale_diff := targetScale / zeroScale
-	
-	start = time.Now()
-
-	Reduction := func() {
-	fmt.Println("----------------------------------")
-	for i := range cvec {
-	ciphertext = cvec[i].CopyNew()
-	if i != 0 {
-	if err = eval.Evaluator.Add(ciphertext, ciphertext2, ciphertext); err != nil {
-		panic(err)
-	}
-	}
-	ciphertext2 = ciphertext.CopyNew()
-	if err := eval.Mul(ciphertext, scale_diff / float64(mods), ciphertext); err != nil {
-		panic(err)
-	}
-	if err := eval.Rescale(ciphertext, ciphertext); err != nil {
-		panic(err)
-	}
-	Bootstrap()
-	cvec[i] = ciphertext.CopyNew()
-	if i != len(cvec) - 1 {
-	if err = eval.Evaluator.Sub(ciphertext2, ciphertext, ciphertext2); err != nil {
-		panic(err)
-	}
-	if err = eval.Evaluator.Mul(ciphertext2, scale_diff / float64(mods * mods), ciphertext2); err != nil {
-		panic(err)
-	}
-	if err := eval.Rescale(ciphertext2, ciphertext2); err != nil {
-		panic(err)
-	}
-	ciphertext = ciphertext2.CopyNew()
-	Bootstrap()
-	ciphertext2 = ciphertext.CopyNew()
-	}
-	}
-	}
-
-	boot_count = 0
-	Reduction()
-	elapsed += time.Since(start)
-	fmt.Printf("Addition time: %s\n", elapsed)
-	fmt.Println("Number of bootstrapping used: ", boot_count)
-
-	//==================
-	//=== 5) DECRYPT ===
-	//==================
-
-	max_err := 0.0
-	mean_err := 0.0
-	// Decrypt, print and compare with the plaintext values
-	for i := 0; i < k/l; i++ {
-	vecTest := printDebug(params, cvec[i], vecWant[i], decryptor, encoder)
-		for j := 0; j < cvec[i].Slots(); j++ {
-			tmp := vecTest[j]
-			this_err_real := math.Abs(real(tmp) - real(vecWant[i][j]))
-			this_err_imag := math.Abs(imag(tmp) - imag(vecWant[i][j]))
-			this_err := math.Sqrt(this_err_real * this_err_real + this_err_imag * this_err_imag)
-			mean_err += this_err
-			max_err = math.Max(max_err, this_err)
-	}
-	}
-	mean_err /= float64((k/l) * cvec[0].Slots())
-	fmt.Println("Max Error in Log 2: ", math.Log2(max_err))
-	fmt.Println("Mean Error in Log 2: ", math.Log2(mean_err))
-	total_max_err = math.Max(max_err, total_max_err)
-	total_mean_err += mean_err
-}
-	total_mean_err /= float64(num_iter)
-	fmt.Println("-----------------------------------")
-	fmt.Println()
-	fmt.Println("Total Max Error in Log 2", math.Log2(total_max_err))
-	fmt.Println("Total Mean Error in Log 2", math.Log2(total_mean_err))
 }
 
 func printDebug(params ckks.Parameters, ciphertext *rlwe.Ciphertext, valuesWant []complex128, decryptor *rlwe.Decryptor, encoder *ckks.Encoder) (valuesTest []complex128) {
