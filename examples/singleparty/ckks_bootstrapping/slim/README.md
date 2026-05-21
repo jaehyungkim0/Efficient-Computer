@@ -31,10 +31,8 @@ but it is excluded from the measured operation time.
 
 This artifact directory contains files derived from the earlier
 Efficient-Computer implementation together with additional implementation work
-prepared for this artifact. Efficient-Computer is the public repository
-`https://github.com/jaehyungkim0/Efficient-Computer` and is itself based on the
-public CRT-FHE repository
-`https://github.com/jaehyungkim0/CRT-FHE`, which is built on Lattigo.
+prepared for this artifact. Efficient-Computer is a public codebase and is
+itself based on the public CRT-FHE codebase, which is built on Lattigo.
 
 Inherited baseline examples and helper code:
 
