@@ -42,7 +42,7 @@ Inherited baseline examples and helper code:
   standard helper routines were written with help from ChatGPT in the inherited
   implementation.
 - `left-shift.go`, `right-shift.go`, `prime25519.go`, `mult-256.go`, and
-  `mult-ext-256.go` should be read primarily as inherited Efficient-Computer
+  `mult-ext-256.go` should be read primarily as inherited baseline
   experiments in this directory.
 
 Implemented or refactored in this artifact:

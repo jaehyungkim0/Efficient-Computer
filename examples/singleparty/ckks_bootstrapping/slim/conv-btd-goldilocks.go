@@ -1081,7 +1081,7 @@ func (c *GoldilocksComputer) ReduceGoldilocks(t, modulus []*rlwe.Ciphertext, zer
 	return out, flag, bootFold + bootSub, nil
 }
 
-func (c *GoldilocksComputer) HackedConvBtDGoldilocks(radixEncoded, modulus []*rlwe.Ciphertext, zero *rlwe.Ciphertext) (out, decomposed []*rlwe.Ciphertext, reduceFlag *rlwe.Ciphertext, bootCount int, err error) {
+func (c *GoldilocksComputer) ConvBtDGoldilocksFromRadixInput(radixEncoded, modulus []*rlwe.Ciphertext, zero *rlwe.Ciphertext) (out, decomposed []*rlwe.Ciphertext, reduceFlag *rlwe.Ciphertext, bootCount int, err error) {
 	bootDecomp, err := c.consumeBootstrapBudget(radixEncoded)
 	if err != nil {
 		return nil, nil, nil, 0, err
