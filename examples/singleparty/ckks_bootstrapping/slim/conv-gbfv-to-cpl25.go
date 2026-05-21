@@ -1075,7 +1075,7 @@ func (c *REDCComputer) intBootDigits(ct *rlwe.Ciphertext, limbs int) ([]*rlwe.Ci
 	return out, bootCount, nil
 }
 
-// legacyConvBtDReference is kept from the earlier BFV-to-Discrete-CKKS example
+// legacyConvBtDReference is kept from the standalone BFV-to-Discrete-CKKS example
 // as a reference implementation of Algorithm 3/REDC composition. The ConvGtD
 // experiment in main does not call this helper.
 func (c *REDCComputer) legacyConvBtDReference(ctCombined *rlwe.Ciphertext, modulus, modulusInv []*rlwe.Ciphertext, zero *rlwe.Ciphertext) (out, decomposed, q, u []*rlwe.Ciphertext, flag *rlwe.Ciphertext, bootCount int, err error) {

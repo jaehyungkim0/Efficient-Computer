@@ -4,9 +4,9 @@ This repository contains the implementation artifact for the conversion and
 logical-operation experiments described in the paper. The experiment programs
 are in `examples/singleparty/ckks_bootstrapping/slim`.
 
-This artifact is based on the public Efficient-Computer codebase.
-Efficient-Computer is in turn based on the public CRT-FHE codebase, which is
-built upon Lattigo.
+This artifact contains code derived from Efficient-Computer and CRT-FHE, both
+Lattigo-based research codebases, together with additional implementation work
+prepared for this artifact.
 
 For a map of the proof-of-concept files, the implemented algorithmic scope, the
 GBFV-to-packed-radix conversion flow, experiment commands, and the artifact-level

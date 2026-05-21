@@ -29,18 +29,17 @@ but it is excluded from the measured operation time.
 
 ## Provenance and Scope
 
-This artifact directory contains files derived from the earlier
-Efficient-Computer implementation together with additional implementation work
-prepared for this artifact. Efficient-Computer is a public codebase and is
-itself based on the public CRT-FHE codebase, which is built on Lattigo.
+This artifact directory contains files derived from Efficient-Computer and
+CRT-FHE, both Lattigo-based research codebases, together with additional
+implementation work prepared for this artifact.
 
 Inherited baseline examples and helper code:
 
 - The baseline slim arithmetic examples and many standard utilities, including
-  CRT/FFT/DFT-style helper routines, are inherited from the
-  Efficient-Computer/CRT-FHE lineage and predate the new conversion
-  work. Comments in several files already record that some of these standard
-  helper routines were written with help from ChatGPT in the earlier
+  CRT/FFT/DFT-style helper routines, are inherited from the underlying
+  Efficient-Computer/CRT-FHE codebases and predate the conversion work in this
+  artifact. Comments in several files already record that some of these
+  standard helper routines were written with help from ChatGPT in the inherited
   implementation.
 - `left-shift.go`, `right-shift.go`, `prime25519.go`, `mult-256.go`, and
   `mult-ext-256.go` should be read primarily as inherited Efficient-Computer
@@ -215,12 +214,12 @@ functions for clearer correspondence with the algorithms, debugging numerical
 and level-management issues, suggesting and checking example parameter changes,
 and drafting this README.
 
-Some standard helper utilities in the inherited Efficient-Computer codebase,
-including CRT/FFT/DFT-style routines, predate this artifact. The disclosure
-above does not claim that those inherited helpers were newly generated for this
-implementation; where older source files already acknowledge ChatGPT assistance
-for such utilities, that acknowledgement is preserved as provenance of the
-earlier code.
+Some standard helper utilities in the inherited codebase, including
+CRT/FFT/DFT-style routines, predate this artifact. The disclosure above does
+not claim that those inherited helpers were newly generated for this
+implementation; where inherited source files already acknowledge ChatGPT
+assistance for such utilities, that acknowledgement is preserved as provenance
+of the source code.
 
 The scientific claims, algorithmic choices, parameter decisions, and final
 artifact content remain the responsibility of the authors. AI-generated or
