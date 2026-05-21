@@ -23,6 +23,7 @@ import (
 )
 
 var flagShort = flag.Bool("short", false, "run the example with a smaller and insecure ring degree.")
+var flagNumIter = flag.Int("num-iter", 10, "number of randomized homomorphic-operation iterations to run.")
 
 func isPrime(n uint64) bool {
 	if int(n) <= 1 {
@@ -401,12 +402,109 @@ func (m *MultiPrecisionMultiplier) bootstrap(ct *rlwe.Ciphertext) (*rlwe.Ciphert
 	return ct, targetScale / zeroScale, bootCount, nil
 }
 
+func (m *MultiPrecisionMultiplier) reduceDigits(digits []*rlwe.Ciphertext) ([]*rlwe.Ciphertext, int, error) {
+	out := make([]*rlwe.Ciphertext, len(digits))
+	copy(out, digits)
+
+	_, scaleDiff, bootCount, err := m.bootstrap(out[0].CopyNew())
+	if err != nil {
+		return nil, 0, err
+	}
+
+	var carry1 *rlwe.Ciphertext
+	var carry2 *rlwe.Ciphertext
+	for i := range out {
+		current := out[i].CopyNew()
+		if i != 0 {
+			if err := m.eval.Evaluator.Add(current, carry1, current); err != nil {
+				return nil, 0, err
+			}
+		}
+
+		remainder := current.CopyNew()
+		if err := m.eval.Mul(current, scaleDiff/float64(m.mods), current); err != nil {
+			return nil, 0, err
+		}
+		if err := m.eval.Rescale(current, current); err != nil {
+			return nil, 0, err
+		}
+
+		current, ratio, used, err := m.bootstrap(current)
+		if err != nil {
+			return nil, 0, err
+		}
+		bootCount += used
+		if ratio != 0 {
+			scaleDiff = ratio
+		}
+		out[i] = current.CopyNew()
+
+		if i != len(out)-1 {
+			if err := m.eval.Evaluator.Sub(remainder, current, remainder); err != nil {
+				return nil, 0, err
+			}
+
+			carry2 = remainder.CopyNew()
+			if err := m.eval.Evaluator.Mul(remainder, scaleDiff/float64(m.mods*m.mods), remainder); err != nil {
+				return nil, 0, err
+			}
+			if err := m.eval.Rescale(remainder, remainder); err != nil {
+				return nil, 0, err
+			}
+
+			remainder, ratio, used, err = m.bootstrap(remainder)
+			if err != nil {
+				return nil, 0, err
+			}
+			bootCount += used
+			if ratio != 0 {
+				scaleDiff = ratio
+			}
+			carry1 = remainder.CopyNew()
+
+			tmp := remainder.CopyNew()
+			if err := m.eval.Evaluator.Mul(remainder, m.mods, tmp); err != nil {
+				return nil, 0, err
+			}
+			if err := m.eval.Evaluator.Sub(carry2, tmp, carry2); err != nil {
+				return nil, 0, err
+			}
+			if err := m.eval.Evaluator.Mul(carry2, scaleDiff/float64(m.mods*m.mods*m.mods), carry2); err != nil {
+				return nil, 0, err
+			}
+			if err := m.eval.Rescale(carry2, carry2); err != nil {
+				return nil, 0, err
+			}
+
+			carry2, ratio, used, err = m.bootstrap(carry2)
+			if err != nil {
+				return nil, 0, err
+			}
+			bootCount += used
+			if ratio != 0 {
+				scaleDiff = ratio
+			}
+
+			if err := m.eval.Evaluator.Mul(carry2, m.mods, carry2); err != nil {
+				return nil, 0, err
+			}
+			if i != 0 {
+				if err := m.eval.Evaluator.Add(carry1, carry2, carry1); err != nil {
+					return nil, 0, err
+				}
+			}
+		}
+	}
+
+	return out, bootCount, nil
+}
+
 func (m *MultiPrecisionMultiplier) Multiply(lhs, rhs []*rlwe.Ciphertext) (*MultiplicationResult, error) {
 	if len(lhs) != m.limbCount || len(rhs) != m.limbCount {
 		return nil, fmt.Errorf("expected %d limbs on both sides, got lhs=%d rhs=%d", m.limbCount, len(lhs), len(rhs))
 	}
 
-	out := make([]*rlwe.Ciphertext, m.limbCount)
+	out := make([]*rlwe.Ciphertext, m.limbCount+1)
 	for i := 0; i < m.limbCount; i++ {
 		for j := 0; j <= i; j++ {
 			ctmp, err := m.eval.MulRelinNew(lhs[j], rhs[i-j])
@@ -425,102 +523,31 @@ func (m *MultiPrecisionMultiplier) Multiply(lhs, rhs []*rlwe.Ciphertext) (*Multi
 			return nil, err
 		}
 	}
+	zero, err := m.eval.SubNew(lhs[0], lhs[0])
+	if err != nil {
+		return nil, err
+	}
+	out[m.limbCount] = zero
 
-	_, scaleDiff, bootCount, err := m.bootstrap(out[0].CopyNew())
+	reduced, bootCount, err := m.reduceDigits(out)
 	if err != nil {
 		return nil, err
 	}
 
-	var carry *rlwe.Ciphertext
-	for i := range out {
-		current := out[i].CopyNew()
-		if i != 0 {
-			if err := m.eval.Evaluator.Add(current, carry, current); err != nil {
-				return nil, err
-			}
-		}
-
-		remainder := current.CopyNew()
-		if err := m.eval.Mul(current, scaleDiff/float64(m.mods), current); err != nil {
-			return nil, err
-		}
-		if err := m.eval.Rescale(current, current); err != nil {
-			return nil, err
-		}
-
-		current, ratio, used, err := m.bootstrap(current)
-		if err != nil {
-			return nil, err
-		}
-		bootCount += used
-		if ratio != 0 {
-			scaleDiff = ratio
-		}
-		out[i] = current
-
-		if i != len(out)-1 {
-			if err := m.eval.Evaluator.Sub(remainder, current, remainder); err != nil {
-				return nil, err
-			}
-
-			high := remainder.CopyNew()
-			if err := m.eval.Evaluator.Mul(high, scaleDiff/float64(m.mods*m.mods), high); err != nil {
-				return nil, err
-			}
-			if err := m.eval.Rescale(high, high); err != nil {
-				return nil, err
-			}
-
-			high, ratio, used, err = m.bootstrap(high)
-			if err != nil {
-				return nil, err
-			}
-			bootCount += used
-			if ratio != 0 {
-				scaleDiff = ratio
-			}
-			carry = high.CopyNew()
-
-			if err := m.eval.Evaluator.Mul(high, m.mods, current); err != nil {
-				return nil, err
-			}
-			if err := m.eval.Evaluator.Sub(remainder, current, remainder); err != nil {
-				return nil, err
-			}
-			if err := m.eval.Evaluator.Mul(remainder, scaleDiff/float64(m.mods*m.mods*m.mods), remainder); err != nil {
-				return nil, err
-			}
-			if err := m.eval.Rescale(remainder, remainder); err != nil {
-				return nil, err
-			}
-
-			remainder, ratio, used, err = m.bootstrap(remainder)
-			if err != nil {
-				return nil, err
-			}
-			bootCount += used
-			if ratio != 0 {
-				scaleDiff = ratio
-			}
-
-			if err := m.eval.Evaluator.Mul(remainder, m.mods, remainder); err != nil {
-				return nil, err
-			}
-			if i != 0 {
-				if err := m.eval.Evaluator.Add(carry, remainder, carry); err != nil {
-					return nil, err
-				}
-			}
-		}
-	}
-
-	return &MultiplicationResult{Ciphertexts: out, Bootstraps: bootCount}, nil
+	return &MultiplicationResult{Ciphertexts: reduced[:m.limbCount], Bootstraps: bootCount}, nil
 }
 
 func runMultiplicationExperiment(params ckks.Parameters, encoder *ckks.Encoder, encryptor *rlwe.Encryptor, decryptor *rlwe.Decryptor, multiplier *MultiPrecisionMultiplier) error {
 	totalMaxErr := 0.0
-	totalMeanErr := 0.0
-	numIter := 10
+	totalMismatchRate := 0.0
+	numIter := *flagNumIter
+	if *flagShort && numIter == 10 {
+		numIter = 1
+	}
+	if numIter <= 0 {
+		return fmt.Errorf("num-iter must be positive, got %d", numIter)
+	}
+	totalOperationTime := time.Duration(0)
 
 	fmt.Printf("The modulus size in bits: %f\n", math.Log2(float64(multiplier.mods)))
 
@@ -539,8 +566,10 @@ func runMultiplicationExperiment(params ckks.Parameters, encoder *ckks.Encoder, 
 		digits1 := multiplier.DecomposeUint64(large1)
 		digits2 := multiplier.DecomposeUint64(large2)
 		digitsWant := multiplier.DecomposeUint64(largeWant)
-
 		level := multiplier.limbCount + 2
+		if *flagShort {
+			level = 4
+		}
 		cvec1, err := multiplier.EncryptDigits(encoder, encryptor, digits1, level)
 		if err != nil {
 			return err
@@ -556,38 +585,130 @@ func runMultiplicationExperiment(params ckks.Parameters, encoder *ckks.Encoder, 
 			return err
 		}
 		elapsed := time.Since(start)
+		totalOperationTime += elapsed
 
 		fmt.Printf("Multiplication time: %s\n", elapsed)
 		fmt.Println("Number of bootstrapping used: ", result.Bootstraps)
 
-		maxErr := 0.0
-		meanErr := 0.0
-		for i := 0; i < multiplier.limbCount; i++ {
-			vecTest := printDebug(params, result.Ciphertexts[i], digitsWant[i], decryptor, encoder)
-			for j := 0; j < result.Ciphertexts[i].Slots(); j++ {
-				tmp := vecTest[j]
-				thisErrReal := math.Abs(real(tmp) - real(digitsWant[i][j]))
-				thisErrImag := math.Abs(imag(tmp) - imag(digitsWant[i][j]))
-				thisErr := math.Sqrt(thisErrReal*thisErrReal + thisErrImag*thisErrImag)
-				meanErr += thisErr
-				maxErr = math.Max(maxErr, thisErr)
+		decoded := make([][]complex128, multiplier.limbCount)
+		for i := range result.Ciphertexts {
+			decoded[i] = decodeCiphertext(params, result.Ciphertexts[i], decryptor, encoder)
+		}
+		exact, maxAbsErr := integerMetricsUint64(decoded, largeWant, multiplier.limbBits)
+		maxAbsErrFloat := float64(maxAbsErr)
+		maxNoise, meanNoise := digitNoiseMetrics(decoded, digitsWant)
+		if *flagShort {
+			wantDigits := multiplier.DecomposeUint64(largeWant)
+			for i := 0; i < min(4, multiplier.limbCount); i++ {
+				fmt.Printf("sample limb %d: got=%0.4f want=%0.4f\n", i, real(decoded[i][0]), real(wantDigits[i][0]))
 			}
+			fmt.Printf("sample value: got=%#016x want=%#016x\n", reconstructUint64(decoded, 0, multiplier.limbBits), largeWant[0])
 		}
 
-		meanErr /= float64(multiplier.limbCount * result.Ciphertexts[0].Slots())
-		fmt.Println("Max Error in Log 2: ", math.Log2(maxErr))
-		fmt.Println("Mean Error in Log 2: ", math.Log2(meanErr))
-		totalMaxErr = math.Max(maxErr, totalMaxErr)
-		totalMeanErr += meanErr
+		fmt.Printf("Exact output matches: %d/%d, max |out-want|=%d\n", exact, len(largeWant), maxAbsErr)
+		if maxAbsErr > 0 {
+			fmt.Println("Max integer error in Log 2:", math.Log2(maxAbsErrFloat))
+		} else {
+			fmt.Println("Max integer error in Log 2: -Inf")
+		}
+		if maxNoise > 0 {
+			fmt.Println("Max digit noise in Log 2:", math.Log2(maxNoise))
+		} else {
+			fmt.Println("Max digit noise in Log 2: -Inf")
+		}
+		if meanNoise > 0 {
+			fmt.Println("Mean digit noise in Log 2:", math.Log2(meanNoise))
+		} else {
+			fmt.Println("Mean digit noise in Log 2: -Inf")
+		}
+		totalMaxErr = math.Max(maxAbsErrFloat, totalMaxErr)
+		totalMismatchRate += float64(len(largeWant)-exact) / float64(len(largeWant))
 	}
 
-	totalMeanErr /= float64(numIter)
+	totalMismatchRate /= float64(numIter)
 	fmt.Println("-----------------------------------")
 	fmt.Println()
-	fmt.Println("Total Max Error in Log 2", math.Log2(totalMaxErr))
-	fmt.Println("Total Mean Error in Log 2", math.Log2(totalMeanErr))
+	if totalMaxErr > 0 {
+		fmt.Println("Total Max Integer Error in Log 2", math.Log2(totalMaxErr))
+	} else {
+		fmt.Println("Total Max Integer Error in Log 2 -Inf")
+	}
+	fmt.Println("Average mismatch rate", totalMismatchRate)
+	fmt.Println("Average homomorphic operation time", totalOperationTime/time.Duration(numIter))
 
 	return nil
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func decodeCiphertext(params ckks.Parameters, ciphertext *rlwe.Ciphertext, decryptor *rlwe.Decryptor, encoder *ckks.Encoder) []complex128 {
+	slots := ciphertext.Slots()
+	if !ciphertext.IsBatched {
+		slots *= 2
+	}
+
+	values := make([]complex128, slots)
+	if err := encoder.Decode(decryptor.DecryptNew(ciphertext), values); err != nil {
+		panic(err)
+	}
+
+	return values
+}
+
+func reconstructUint64(decodedLimbs [][]complex128, slot int, limbBits int) uint64 {
+	var acc uint64
+	for limb := len(decodedLimbs) - 1; limb >= 0; limb-- {
+		acc <<= limbBits
+		digit := math.Round(real(decodedLimbs[limb][slot]))
+		if digit < 0 {
+			digit = 0
+		}
+		acc += uint64(digit)
+	}
+	return acc
+}
+
+func integerMetricsUint64(decodedLimbs [][]complex128, want []uint64, limbBits int) (exact int, maxAbsErr uint64) {
+	for slot := range want {
+		got := reconstructUint64(decodedLimbs, slot, limbBits)
+		if got == want[slot] {
+			exact++
+			continue
+		}
+		var err uint64
+		if got > want[slot] {
+			err = got - want[slot]
+		} else {
+			err = want[slot] - got
+		}
+		if err > maxAbsErr {
+			maxAbsErr = err
+		}
+	}
+	return exact, maxAbsErr
+}
+
+func digitNoiseMetrics(decodedLimbs, wantDigits [][]complex128) (maxErr, meanErr float64) {
+	count := 0
+	for limb := range wantDigits {
+		for slot := range wantDigits[limb] {
+			err := math.Abs(real(decodedLimbs[limb][slot]) - real(wantDigits[limb][slot]))
+			meanErr += err
+			if err > maxErr {
+				maxErr = err
+			}
+			count++
+		}
+	}
+	if count > 0 {
+		meanErr /= float64(count)
+	}
+	return
 }
 
 func main() {

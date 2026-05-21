@@ -374,12 +374,17 @@ func (eval RingPackingEvaluator) repack(cts map[int]*Ciphertext, naive bool) (ct
 
 		for j := 0; j < t; j++ {
 
-			if ctsLargeN[j] != nil || ctsLargeN[j+1] != nil {
+			if ctsLargeN[j] != nil || ctsLargeN[j+t] != nil {
+
+				if ctsLargeN[j] == nil {
+					ctsLargeN[j] = NewCiphertext(eval.Parameters[logNMax-i-1], 1, level)
+					*ctsLargeN[j].MetaData = *ctsLargeN[j+t].MetaData
+				}
 
 				ctN := NewCiphertext(eval.Parameters[logNMax-i], 1, level)
 
 				if err = eval.Merge(ctsLargeN[j], ctsLargeN[j+t], ctN); err != nil {
-					return nil, fmt.Errorf("eval.split(cts[%d]): %w", j, err)
+					return nil, fmt.Errorf("eval.merge(cts[%d], cts[%d]): %w", j, j+t, err)
 				}
 
 				ctsLargeN[j] = ctN

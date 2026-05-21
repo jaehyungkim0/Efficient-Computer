@@ -1,8 +1,17 @@
 # Instructions
 
-The code is based upon the code base from https://github.com/jaehyungkim0/CRT-FHE which is built upon Lattigo.
-To execute our implementation, go to examples/singleparty/ckks_bootstrapping/slim directory and run different experiments.
-For instance, you can execute the multiplication experiment by running 'go run mult.go'.
+This repository contains the implementation artifact for the conversion and
+logical-operation experiments described in the paper. The experiment programs
+are in `examples/singleparty/ckks_bootstrapping/slim`.
+
+This artifact is based on the public Efficient-Computer repository
+https://github.com/jaehyungkim0/Efficient-Computer. Efficient-Computer is in
+turn based on the public CRT-FHE repository
+https://github.com/jaehyungkim0/CRT-FHE, which is built upon Lattigo.
+
+For a map of the proof-of-concept files, the implemented algorithmic scope, the
+GBFV-to-packed-radix conversion flow, experiment commands, and the artifact-level
+AI assistance statement, see [examples/singleparty/ckks_bootstrapping/slim/README.md](examples/singleparty/ckks_bootstrapping/slim/README.md).
 
 # Lattigo: lattice-based multiparty homomorphic encryption library in Go
 
@@ -141,12 +150,6 @@ fixes and new features. Hence, we encourage all Lattigo users to update to the l
 
 
 See CHANGELOG.md for the current and past versions.
-
-## Stability
-
-To keep a comprehensive history, we prioritize rebases over merges for branches other than `main`.
-Branches with the prefix `dev_` are branches in active development and will be frequently rebased.
-Hence, we don't recommend depending on them.
 
 ## Pull Requests
 

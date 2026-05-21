@@ -23,6 +23,7 @@ import (
 )
 
 var flagShort = flag.Bool("short", false, "run the example with a smaller and insecure ring degree.")
+var flagNumIter = flag.Int("num-iter", 10, "number of randomized homomorphic-operation iterations to run.")
 
 func isPrime(n uint64) bool {
 	if int(n) <= 1 {
@@ -482,7 +483,11 @@ func (s *MultiPrecisionSubtractor) Subtract(lhs, rhs []*rlwe.Ciphertext) (*Subtr
 func runSubtractionExperiment(params ckks.Parameters, encoder *ckks.Encoder, encryptor *rlwe.Encryptor, decryptor *rlwe.Decryptor, subtractor *MultiPrecisionSubtractor) error {
 	totalMaxErr := 0.0
 	totalMeanErr := 0.0
-	numIter := 10
+	numIter := *flagNumIter
+	if numIter <= 0 {
+		return fmt.Errorf("num-iter must be positive, got %d", numIter)
+	}
+	totalOperationTime := time.Duration(0)
 
 	fmt.Printf("The modulus size in bits: %f\n", math.Log2(float64(subtractor.mods)))
 
@@ -518,6 +523,7 @@ func runSubtractionExperiment(params ckks.Parameters, encoder *ckks.Encoder, enc
 			return err
 		}
 		elapsed := time.Since(start)
+		totalOperationTime += elapsed
 
 		fmt.Printf("Subtraction time: %s\n", elapsed)
 		fmt.Println("Number of bootstrapping used: ", result.Bootstraps)
@@ -548,6 +554,7 @@ func runSubtractionExperiment(params ckks.Parameters, encoder *ckks.Encoder, enc
 	fmt.Println()
 	fmt.Println("Total Max Error in Log 2", math.Log2(totalMaxErr))
 	fmt.Println("Total Mean Error in Log 2", math.Log2(totalMeanErr))
+	fmt.Println("Average homomorphic operation time", totalOperationTime/time.Duration(numIter))
 
 	return nil
 }

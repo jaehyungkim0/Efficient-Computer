@@ -4,18 +4,18 @@
 package main
 
 import (
+	"crypto/rand"
 	"flag"
 	"fmt"
 	"math"
+	"math/big"
 	"math/cmplx"
 	"time"
-	"crypto/rand"
-	"math/big"
 
-	"github.com/tuneinsight/lattigo/v6/circuits/ckks/polynomial"
 	"github.com/tuneinsight/lattigo/v6/circuits/ckks/bootstrapping"
 	"github.com/tuneinsight/lattigo/v6/circuits/ckks/dft"
 	"github.com/tuneinsight/lattigo/v6/circuits/ckks/mod1"
+	"github.com/tuneinsight/lattigo/v6/circuits/ckks/polynomial"
 	"github.com/tuneinsight/lattigo/v6/core/rlwe"
 	"github.com/tuneinsight/lattigo/v6/ring"
 	"github.com/tuneinsight/lattigo/v6/schemes/ckks"
@@ -23,6 +23,7 @@ import (
 )
 
 var flagShort = flag.Bool("short", false, "run the example with a smaller and insecure ring degree.")
+var flagNumIter = flag.Int("num-iter", 10, "number of randomized homomorphic-operation iterations to run.")
 
 func isPrime(n uint64) bool {
 	if int(n) <= 1 {
@@ -65,9 +66,9 @@ func firstKPrimes(k uint64) []uint64 {
 func Moduli(n uint64, k uint64) []uint64 {
 	list := firstKPrimes(k)
 	result := []uint64{}
-	for i:=0; i<int(k); i++ {
+	for i := 0; i < int(k); i++ {
 		tmp := list[i]
-		for tmp * list[i] <= n {
+		for tmp*list[i] <= n {
 			tmp *= list[i]
 		}
 		result = append(result, tmp)
@@ -173,10 +174,10 @@ func constructPolynomial(n int, deg int) []complex128 {
 
 	// Step 3: Interpolate to find the coefficients, using DFT or FFT as needed
 	coefficients := interpolate(values)
-	result := make([]complex128, deg + 1)
+	result := make([]complex128, deg+1)
 	for i := 0; i <= deg; i++ {
 		if i >= n {
-			result[i] = complex(0,0)
+			result[i] = complex(0, 0)
 		} else {
 			result[i] = coefficients[i]
 		}
@@ -185,15 +186,14 @@ func constructPolynomial(n int, deg int) []complex128 {
 }
 
 func cleanPolynomial(n int, deg int) []complex128 {
-	coefficients := make([]complex128, deg + 1)
+	coefficients := make([]complex128, deg+1)
 	for i := 0; i <= deg; i++ {
-		coefficients[i] = complex(0,0)
+		coefficients[i] = complex(0, 0)
 	}
-	coefficients[1] = complex(1.0 / float64(n) + 1.0, 0)
-	coefficients[n+1] = complex(-1.0 / float64(n), 0)
+	coefficients[1] = complex(1.0/float64(n)+1.0, 0)
+	coefficients[n+1] = complex(-1.0/float64(n), 0)
 	return coefficients
 }
-
 
 func HermiteInterpolation(n int, deg int) []complex128 {
 	z := cmplx.Exp(2 * math.Pi * 1i / complex(float64(n), 0))
@@ -222,7 +222,7 @@ func HermiteInterpolation(n int, deg int) []complex128 {
 	for i := 0; i < 2*n; i++ {
 		coeffs[i] = list[i]
 	}
-	for i := 2*n; i <= deg; i++ {
+	for i := 2 * n; i <= deg; i++ {
 		coeffs[i] = complex(0.0, 0.0)
 	}
 	return coeffs
@@ -291,11 +291,11 @@ func main() {
 
 	LogDefaultScale := 50
 
-	q0 := []int{50}                                    // 3) ScaleDown & 4) ModUp
-	qiSlotsToCoeffs := []int{43, 43, 43}               // 1) SlotsToCoeffs
+	q0 := []int{50}                      // 3) ScaleDown & 4) ModUp
+	qiSlotsToCoeffs := []int{43, 43, 43} // 1) SlotsToCoeffs
 	qiCircuitSlots := []int{50, 50, 50, 50, 50, 50, 50, 50, 50, 50}
 	qiEvalMod := []int{50, 50, 50, 50, 50, 50, 50, 50}
-	qiCoeffsToSlots := []int{47, 47, 47}           // 5) CoeffsToSlots
+	qiCoeffsToSlots := []int{47, 47, 47} // 5) CoeffsToSlots
 
 	LogQ := append(q0, qiSlotsToCoeffs...)
 	LogQ = append(LogQ, qiCircuitSlots...)
@@ -337,7 +337,7 @@ func main() {
 		Mod1Degree:      30,               // Depth 5
 		DoubleAngle:     3,                // Depth 3
 		K:               16,               // With EphemeralSecretWeight = 32 and 2^{15} slots, ensures < 2^{-138.7} failure probability
-		LogMessageRatio: 0,               // q/|m| = 1
+		LogMessageRatio: 0,                // q/|m| = 1
 		Mod1InvDegree:   0,                // Depth 0
 	}
 
@@ -416,545 +416,551 @@ func main() {
 	// Define Computer Parameters
 	l := 8
 	k := 256
-	expk := new(big.Int).Lsh(big.NewInt(1), uint(k - 1))
+	expk := new(big.Int).Lsh(big.NewInt(1), uint(k-1))
 	prime := new(big.Int).Sub(expk, big.NewInt(19))
 
 	// Define Modulo Parameters
 	n := 1 << l
 	mods := uint64(1 << l)
-	deg_eval := 2*n-1
+	deg_eval := 2*n - 1
 	sum := math.Log2(float64(mods))
 	fmt.Printf("The modulus size in bits: %f\n", float64(sum))
 
 	total_max_err := 0.0
 	total_mean_err := 0.0
-	num_iter := 10
+	num_iter := *flagNumIter
+	if num_iter <= 0 {
+		panic(fmt.Sprintf("num-iter must be positive, got %d", num_iter))
+	}
+	totalOperationTime := time.Duration(0)
 
 	for iter := 0; iter < num_iter; iter++ {
 
-	pvec1 := make([]*rlwe.Plaintext, k/l)
-	pvec2 := make([]*rlwe.Plaintext, k/l)
+		pvec1 := make([]*rlwe.Plaintext, k/l)
+		pvec2 := make([]*rlwe.Plaintext, k/l)
 
-	large1 := make([]*big.Int, params.MaxSlots())
-	large2 := make([]*big.Int, params.MaxSlots())
-	largeWant := make([]*big.Int, params.MaxSlots())
+		large1 := make([]*big.Int, params.MaxSlots())
+		large2 := make([]*big.Int, params.MaxSlots())
+		largeWant := make([]*big.Int, params.MaxSlots())
 
-	for i := range large1 {
-	large1[i], err = rand.Int(rand.Reader, prime)
-	large2[i], err = rand.Int(rand.Reader, prime)
-	largeWant[i] = new(big.Int).Mul(large1[i], large2[i])
-	largeWant[i] = new(big.Int).Mod(largeWant[i], prime)
-	}
-	
-	vec1 := make([][]complex128, k/l)
-	vec2 := make([][]complex128, k/l)
-	vecWant := make([][]complex128, k/l)
-	
-	for i := range vec1 {
-	vec1[i] = make([]complex128, params.MaxSlots())
-	vec2[i] = make([]complex128, params.MaxSlots())
-	vecWant[i] = make([]complex128, params.MaxSlots())
-	for j := range vec1[i] {
-	
-	// num1
-	num1 := large1[j]
-	// Decompose into base-16 digits
-	digits1 := make([]uint64, k/l)
-	for t := 0; t < k/l; t++ {
-		digits1[t] = new(big.Int).And(num1, big.NewInt(255)).Uint64()
-		num1 = new(big.Int).Rsh(num1, 8)
-	}
-	vec1[i][j] = complex(float64(digits1[i]), 0)
-	
-	// num2
-	num2 := large2[j]
-	// Decompose into base-16 digits
-	digits2 := make([]uint64, k/l)
-	for t := 0; t < k/l; t++ {
-		digits2[t] = new(big.Int).And(num2, big.NewInt(255)).Uint64()
-		num2 = new(big.Int).Rsh(num2, 8)
-	}
-	vec2[i][j] = complex(float64(digits2[i]), 0)
+		for i := range large1 {
+			large1[i], err = rand.Int(rand.Reader, prime)
+			large2[i], err = rand.Int(rand.Reader, prime)
+			largeWant[i] = new(big.Int).Mul(large1[i], large2[i])
+			largeWant[i] = new(big.Int).Mod(largeWant[i], prime)
+		}
 
-	// numWant
-	numWant := largeWant[j]
-	digitsWant := make([]uint64, k/l)
-	for t := 0; t < k/l; t++ {
-		digitsWant[t] = new(big.Int).And(numWant, big.NewInt(255)).Uint64()
-		numWant = new(big.Int).Rsh(numWant, 8)
-	}
-	vecWant[i][j] = complex(float64(digitsWant[i]), 0)
-	}
-	}
+		vec1 := make([][]complex128, k/l)
+		vec2 := make([][]complex128, k/l)
+		vecWant := make([][]complex128, k/l)
 
-	vecZero := make([]complex128, params.MaxSlots())
-	for i := range vec1[0] {
-		vecZero[i] = complex(0, 0)
-	}
-	
-	ptZero := ckks.NewPlaintext(params, SlotsToCoeffsParameters.LevelQ + 2)
-	if err := encoder.Encode(vecZero, ptZero); err != nil {
-		panic(err)
-	}
-	
-	for i := range vec1 {
-	// We encrypt at level 0
-	pvec1[i] = ckks.NewPlaintext(params, SlotsToCoeffsParameters.LevelQ + 2)
-	pvec2[i] = ckks.NewPlaintext(params, SlotsToCoeffsParameters.LevelQ + 2)
-	if err := encoder.Encode(vec1[i], pvec1[i]); err != nil {
-		panic(err)
-	}
-	if err := encoder.Encode(vec2[i], pvec2[i]); err != nil {
-		panic(err)
-	}
-	}
+		for i := range vec1 {
+			vec1[i] = make([]complex128, params.MaxSlots())
+			vec2[i] = make([]complex128, params.MaxSlots())
+			vecWant[i] = make([]complex128, params.MaxSlots())
+			for j := range vec1[i] {
 
-	cvec1 := make([]*rlwe.Ciphertext, k/l)
-	cvec2 := make([]*rlwe.Ciphertext, k/l)
-	cvec := make([]*rlwe.Ciphertext, 2 * k/l)
-	var ctZero *rlwe.Ciphertext
+				// num1
+				num1 := large1[j]
+				// Decompose into base-16 digits
+				digits1 := make([]uint64, k/l)
+				for t := 0; t < k/l; t++ {
+					digits1[t] = new(big.Int).And(num1, big.NewInt(255)).Uint64()
+					num1 = new(big.Int).Rsh(num1, 8)
+				}
+				vec1[i][j] = complex(float64(digits1[i]), 0)
 
-	ctZero, err = encryptor.EncryptNew(ptZero)
-	if err != nil {
-		panic(err)
-	}
+				// num2
+				num2 := large2[j]
+				// Decompose into base-16 digits
+				digits2 := make([]uint64, k/l)
+				for t := 0; t < k/l; t++ {
+					digits2[t] = new(big.Int).And(num2, big.NewInt(255)).Uint64()
+					num2 = new(big.Int).Rsh(num2, 8)
+				}
+				vec2[i][j] = complex(float64(digits2[i]), 0)
 
-	for i := 0; i < k/l; i++ {
-	// Encrypt
-	cvec1[i], err = encryptor.EncryptNew(pvec1[i])
-	if err != nil {
-		panic(err)
-	}
-	cvec2[i], err = encryptor.EncryptNew(pvec2[i])
-	if err != nil {
-		panic(err)
-	}	
-	}
-	start := time.Now()
-	
-	for i := 0; i < 2 * k/l - 1; i++ {
-	lowbound := 0
-	if i >= k/l {
-		lowbound = i - (k/l) + 1
-	}
-	for j := lowbound; j <= (i - lowbound); j++ {
-	ctmp, err := eval.MulRelinNew(cvec1[j], cvec2[i-j])
-	if err != nil {
-		panic(err)
-	}
-	if j == lowbound {
-		cvec[i] = ctmp.CopyNew()
-	} else {
-		if cvec[i], err = eval.AddNew(cvec[i], ctmp); err != nil {
+				// numWant
+				numWant := largeWant[j]
+				digitsWant := make([]uint64, k/l)
+				for t := 0; t < k/l; t++ {
+					digitsWant[t] = new(big.Int).And(numWant, big.NewInt(255)).Uint64()
+					numWant = new(big.Int).Rsh(numWant, 8)
+				}
+				vecWant[i][j] = complex(float64(digitsWant[i]), 0)
+			}
+		}
+
+		vecZero := make([]complex128, params.MaxSlots())
+		for i := range vec1[0] {
+			vecZero[i] = complex(0, 0)
+		}
+
+		ptZero := ckks.NewPlaintext(params, SlotsToCoeffsParameters.LevelQ+2)
+		if err := encoder.Encode(vecZero, ptZero); err != nil {
 			panic(err)
 		}
-	}
-	}
-	if err := eval.Rescale(cvec[i], cvec[i]); err != nil {
-		panic(err)
-	}
-	}
-	cvec[2 * k/l - 1] = ctZero
-	
-	var ciphertext *rlwe.Ciphertext
-	var ciphertext2 *rlwe.Ciphertext
-	var ciphertext3 *rlwe.Ciphertext
 
-	// Define mapping
-	pos := make([][]int, 1)
-	for i:=0; i < 1; i++ {
-		pos[i] = make([]int, cvec[0].Slots())
-		for j:=0; j < cvec[0].Slots(); j++ {
-			pos[i][j] = (cvec[0].Slots()) * i + j
+		for i := range vec1 {
+			// We encrypt at level 0
+			pvec1[i] = ckks.NewPlaintext(params, SlotsToCoeffsParameters.LevelQ+2)
+			pvec2[i] = ckks.NewPlaintext(params, SlotsToCoeffsParameters.LevelQ+2)
+			if err := encoder.Encode(vec1[i], pvec1[i]); err != nil {
+				panic(err)
+			}
+			if err := encoder.Encode(vec2[i], pvec2[i]); err != nil {
+				panic(err)
+			}
 		}
-	}
 
-	mapping := make(map[int][]int)
-	for i:=0; i < 1; i++ {
-		mapping[i] = pos[i]
-	}
+		cvec1 := make([]*rlwe.Ciphertext, k/l)
+		cvec2 := make([]*rlwe.Ciphertext, k/l)
+		cvec := make([]*rlwe.Ciphertext, 2*k/l)
+		var ctZero *rlwe.Ciphertext
 
-	boot_count := 0
-	Bootstrap := func() {
-	boot_count += 1
-	// Step 1 : SlotsToCoeffs (Homomorphic decoding)
-	if ciphertext, err = eval.SlotsToCoeffs(ciphertext, nil); err != nil {
-		panic(err)
-	}
+		ctZero, err = encryptor.EncryptNew(ptZero)
+		if err != nil {
+			panic(err)
+		}
 
-	// Step 2: scale to q/|m|
-	if ciphertext, _, err = eval.ScaleDown(ciphertext); err != nil {
-		panic(err)
-	}
+		for i := 0; i < k/l; i++ {
+			// Encrypt
+			cvec1[i], err = encryptor.EncryptNew(pvec1[i])
+			if err != nil {
+				panic(err)
+			}
+			cvec2[i], err = encryptor.EncryptNew(pvec2[i])
+			if err != nil {
+				panic(err)
+			}
+		}
+		start := time.Now()
 
-	zeroScale = ciphertext.Scale.Float64()
-	targetScale = float64(params.RingQ().ModulusAtLevel[0].Uint64())
+		for i := 0; i < 2*k/l-1; i++ {
+			lowbound := 0
+			if i >= k/l {
+				lowbound = i - (k / l) + 1
+			}
+			for j := lowbound; j <= (i - lowbound); j++ {
+				ctmp, err := eval.MulRelinNew(cvec1[j], cvec2[i-j])
+				if err != nil {
+					panic(err)
+				}
+				if j == lowbound {
+					cvec[i] = ctmp.CopyNew()
+				} else {
+					if cvec[i], err = eval.AddNew(cvec[i], ctmp); err != nil {
+						panic(err)
+					}
+				}
+			}
+			if err := eval.Rescale(cvec[i], cvec[i]); err != nil {
+				panic(err)
+			}
+		}
+		cvec[2*k/l-1] = ctZero
 
-	// Step 3 : Extend the basis from q to Q
-	if ciphertext, err = eval.ModUp(ciphertext); err != nil {
-		panic(err)
-	}
+		var ciphertext *rlwe.Ciphertext
+		var ciphertext2 *rlwe.Ciphertext
+		var ciphertext3 *rlwe.Ciphertext
 
-	// Step 4 : CoeffsToSlots (Homomorphic encoding)
-	// Note: expects the result to be given in bit-reversed order
-	// Also, we need the homomorphic encoding to split the real and
-	// imaginary parts into two pure real ciphertexts, because the
-	// homomorphic modular reduction is only defined on the reals.
-	// The `imag` ciphertext can be ignored if the original input
-	// is purely real.
-	var real, imag *rlwe.Ciphertext
-	if real, imag, err = eval.CoeffsToSlots(ciphertext); err != nil {
-		panic(err)
-	}
+		// Define mapping
+		pos := make([][]int, 1)
+		for i := 0; i < 1; i++ {
+			pos[i] = make([]int, cvec[0].Slots())
+			for j := 0; j < cvec[0].Slots(); j++ {
+				pos[i][j] = (cvec[0].Slots())*i + j
+			}
+		}
 
-	// Step 5 : EvalMod (Homomorphic modular reduction)
-	if imag, err = eval.EvalModAndScale(real, 2 * math.Pi); err != nil {
-		panic(err)
-	}
+		mapping := make(map[int][]int)
+		for i := 0; i < 1; i++ {
+			mapping[i] = pos[i]
+		}
 
-	if real, err = eval.EvalElseAndScale(real, 2 * math.Pi); err != nil {
-		panic(err)
-	}
+		boot_count := 0
+		Bootstrap := func() {
+			boot_count += 1
+			// Step 1 : SlotsToCoeffs (Homomorphic decoding)
+			if ciphertext, err = eval.SlotsToCoeffs(ciphertext, nil); err != nil {
+				panic(err)
+			}
 
-	// Recombines the real and imaginary part
-	if err = eval.Evaluator.Mul(imag, 1i, imag); err != nil {
-		panic(err)
-	}
+			// Step 2: scale to q/|m|
+			if ciphertext, _, err = eval.ScaleDown(ciphertext); err != nil {
+				panic(err)
+			}
 
-	if err = eval.Evaluator.Add(real, imag, ciphertext); err != nil {
-		panic(err)
-	}
+			zeroScale = ciphertext.Scale.Float64()
+			targetScale = float64(params.RingQ().ModulusAtLevel[0].Uint64())
 
-	// Evaluator
-	opeval := ckks.NewEvaluator(params, evk)
-	// Instantiates the polynomial evaluator
-	polyEval := polynomial.NewEvaluator(params, opeval)
+			// Step 3 : Extend the basis from q to Q
+			if ciphertext, err = eval.ModUp(ciphertext); err != nil {
+				panic(err)
+			}
 
-	// Step 6 : Polynomial Evaluation
-	var polys polynomial.PolynomialVector
-	eval_poly_vec := make([]bignum.Polynomial, 1)
-	for i:=0; i < 1; i++ {
-		eval_poly_vec[i] = bignum.NewPolynomial(0, HermiteInterpolation(int(mods), deg_eval), nil)
-	}
-        if polys, err = polynomial.NewPolynomialVector(eval_poly_vec, mapping); err != nil {
-                panic(err)
-        }
-	if ciphertext, err = polyEval.Evaluate(ciphertext, polys, params.DefaultScale()); err != nil {
-		panic(err)
-	}
-	}
+			// Step 4 : CoeffsToSlots (Homomorphic encoding)
+			// Note: expects the result to be given in bit-reversed order
+			// Also, we need the homomorphic encoding to split the real and
+			// imaginary parts into two pure real ciphertexts, because the
+			// homomorphic modular reduction is only defined on the reals.
+			// The `imag` ciphertext can be ignored if the original input
+			// is purely real.
+			var real, imag *rlwe.Ciphertext
+			if real, imag, err = eval.CoeffsToSlots(ciphertext); err != nil {
+				panic(err)
+			}
 
-	ciphertext = cvec[0].CopyNew()
-	Bootstrap()
-	scale_diff := targetScale / zeroScale
-	
-	ReductionSmall := func() {
-	for i := 0; i < k/l + 1; i++ {
-	ciphertext = cvec[i].CopyNew()
-	if i != 0 {
-	if err = eval.Evaluator.Add(ciphertext, ciphertext2, ciphertext); err != nil {
-		panic(err)
-	}
-	}
-	ciphertext2 = ciphertext.CopyNew()
-	if err := eval.Mul(ciphertext, scale_diff / float64(mods), ciphertext); err != nil {
-		panic(err)
-	}
-	if err := eval.Rescale(ciphertext, ciphertext); err != nil {
-		panic(err)
-	}
-	Bootstrap()
-	cvec[i] = ciphertext.CopyNew()
-	if i != (k/l + 1) {
-	if err = eval.Evaluator.Sub(ciphertext2, ciphertext, ciphertext2); err != nil {
-		panic(err)
-	}
-	if err = eval.Evaluator.Mul(ciphertext2, scale_diff / float64(mods * mods), ciphertext2); err != nil {
-		panic(err)
-	}
-	if err := eval.Rescale(ciphertext2, ciphertext2); err != nil {
-		panic(err)
-	}
-	ciphertext = ciphertext2.CopyNew()
-	Bootstrap()
-	ciphertext2 = ciphertext.CopyNew()
-	}
-	}
-	}
-	
-	ReductionCompare := func() {
-	for i := 0; i < k/l; i++ {
-	ciphertext = cvec[i].CopyNew()
-	if i != 0 {
-	if err = eval.Evaluator.Add(ciphertext, ciphertext2, ciphertext); err != nil {
-		panic(err)
-	}
-	}
-	ciphertext2 = ciphertext.CopyNew()
-	if err := eval.Mul(ciphertext, scale_diff / float64(mods), ciphertext); err != nil {
-		panic(err)
-	}
-	if err := eval.Rescale(ciphertext, ciphertext); err != nil {
-		panic(err)
-	}
-	Bootstrap()
-	cvec[i] = ciphertext.CopyNew()
-	if err = eval.Evaluator.Sub(ciphertext2, ciphertext, ciphertext2); err != nil {
-		panic(err)
-	}
-	if err = eval.Evaluator.Mul(ciphertext2, scale_diff / float64(mods * mods), ciphertext2); err != nil {
-		panic(err)
-	}
-	if err := eval.Rescale(ciphertext2, ciphertext2); err != nil {
-		panic(err)
-	}
-	// ciphertext = ciphertext2.CopyNew()
-	ciphertext, err = eval.AddNew(ciphertext2, 0.5)
-	Bootstrap()
-	// ciphertext2 = ciphertext.CopyNew()
-	ciphertext2, err = eval.SubNew(ciphertext, 128.0)
-	if i == k/l - 1 {
-	ciphertext3, err = eval.AddNew(ciphertext2, 1.0)
-	}
-	}
-	}
+			// Step 5 : EvalMod (Homomorphic modular reduction)
+			if imag, err = eval.EvalModAndScale(real, 2*math.Pi); err != nil {
+				panic(err)
+			}
 
-	Reduction := func() {
-	fmt.Println("----------------------------------")
-	for i := range cvec {
-	ciphertext = cvec[i].CopyNew()
-	if i != 0 {
-	if err = eval.Evaluator.Add(ciphertext, ciphertext2, ciphertext); err != nil {
-		panic(err)
-	}
-	}
-	ciphertext2 = ciphertext.CopyNew()
-	if err := eval.Mul(ciphertext, scale_diff / float64(mods), ciphertext); err != nil {
-		panic(err)
-	}
-	if err := eval.Rescale(ciphertext, ciphertext); err != nil {
-		panic(err)
-	}
-	Bootstrap()
-	cvec[i] = ciphertext.CopyNew()
-	if i != len(cvec) - 1 {
-	if err = eval.Evaluator.Sub(ciphertext2, ciphertext, ciphertext2); err != nil {
-		panic(err)
-	}
-	ciphertext3 = ciphertext2.CopyNew()
-	if err = eval.Evaluator.Mul(ciphertext2, scale_diff / float64(mods * mods), ciphertext2); err != nil {
-		panic(err)
-	}
-	if err := eval.Rescale(ciphertext2, ciphertext2); err != nil {
-		panic(err)
-	}
-	ciphertext = ciphertext2.CopyNew()
-	Bootstrap()
-	ciphertext2 = ciphertext.CopyNew()
-	if err = eval.Evaluator.Mul(ciphertext2, mods, ciphertext); err != nil {
-		panic(err)
-	}
-	if err = eval.Evaluator.Sub(ciphertext3, ciphertext, ciphertext3); err != nil {
-		panic(err)
-	}
-	if err = eval.Evaluator.Mul(ciphertext3, scale_diff / float64(mods * mods * mods), ciphertext3); err != nil {
-		panic(err)
-	}
-	if err := eval.Rescale(ciphertext3, ciphertext3); err != nil {
-		panic(err)
-	}
-	ciphertext = ciphertext3.CopyNew()
-	Bootstrap()
-	ciphertext3 = ciphertext.CopyNew()
-	if err = eval.Evaluator.Mul(ciphertext3, mods, ciphertext3); err != nil {
-		panic(err)
-	}
-	if i != 0 {
-	if err = eval.Evaluator.Add(ciphertext2, ciphertext3, ciphertext2); err != nil {
-		panic(err)
-	}
-	}
-	}
-	}
-	}
+			if real, err = eval.EvalElseAndScale(real, 2*math.Pi); err != nil {
+				panic(err)
+			}
 
-	boot_count = 0
-	Reduction()
+			// Recombines the real and imaginary part
+			if err = eval.Evaluator.Mul(imag, 1i, imag); err != nil {
+				panic(err)
+			}
 
-	// Multiply the hi part by 38 and add to the lo part
-	for i := 0; i < k/l; i++ {
-	if err = eval.Evaluator.Mul(cvec[i + k/l], 38, cvec[i + k/l]); err != nil {
-		panic(err)
-	}
-	if err = eval.Evaluator.Add(cvec[i], cvec[i + k/l], cvec[i]); err != nil {
-		panic(err)
-	}
-	}
+			if err = eval.Evaluator.Add(real, imag, ciphertext); err != nil {
+				panic(err)
+			}
 
-	cvec[k/l] = ctZero.CopyNew()
+			// Evaluator
+			opeval := ckks.NewEvaluator(params, evk)
+			// Instantiates the polynomial evaluator
+			polyEval := polynomial.NewEvaluator(params, opeval)
 
-	ReductionSmall() // Reduce for k/l + 1 components
+			// Step 6 : Polynomial Evaluation
+			var polys polynomial.PolynomialVector
+			eval_poly_vec := make([]bignum.Polynomial, 1)
+			for i := 0; i < 1; i++ {
+				eval_poly_vec[i] = bignum.NewPolynomial(0, HermiteInterpolation(int(mods), deg_eval), nil)
+			}
+			if polys, err = polynomial.NewPolynomialVector(eval_poly_vec, mapping); err != nil {
+				panic(err)
+			}
+			if ciphertext, err = polyEval.Evaluate(ciphertext, polys, params.DefaultScale()); err != nil {
+				panic(err)
+			}
+		}
 
-	// Multiply the hi(255) part by 19 and add to the lo part
-	if err = eval.Evaluator.Mul(cvec[k/l - 1], 2.0 * scale_diff / float64(mods), ciphertext); err != nil {
-		panic(err)
-	} // a + 128b -> 2a
-	if err = eval.Rescale(ciphertext, ciphertext); err != nil {
-		panic(err)
-	}
-	Bootstrap()
-	if err = eval.Evaluator.Mul(cvec[k/l - 1], 2, cvec[k/l - 1]); err != nil {
-		panic(err)
-	} // a + 128b -> 2a + 256b
-	if err = eval.Evaluator.Sub(cvec[k/l - 1], ciphertext, ciphertext2); err != nil {
-		panic(err)
-	} // ciphertext2 = 256b
-	if err = eval.Evaluator.Mul(ciphertext, 0.5 * scale_diff / float64(mods), ciphertext); err != nil {
-		panic(err)
-	} // 2a -> a
-	if err = eval.Rescale(ciphertext, ciphertext); err != nil {
-		panic(err)
-	}
-	Bootstrap()
-	cvec[k/l - 1] = ciphertext.CopyNew() // cvec[0] ~ cvec[k/l - 1] has modulo 2^255 data.
-	
-	if err = eval.Evaluator.Mul(ciphertext2, scale_diff / float64(mods * mods), ciphertext2); err != nil {
-		panic(err)
-	} // 256b -> b
-	if err = eval.Rescale(ciphertext2, ciphertext2); err != nil {
-		panic(err)
-	}
-	ciphertext = ciphertext2.CopyNew()
-	Bootstrap()
-	ciphertext2 = ciphertext.CopyNew()
-	if err = eval.Evaluator.Mul(cvec[k/l], 2, ciphertext3); err != nil {
-		panic(err)
-	}
-	if err = eval.Evaluator.Add(ciphertext3, ciphertext2, ciphertext3); err != nil {
-		panic(err)
-	} // ciphertext3 = \floor{n/(2^255)}
+		ciphertext = cvec[0].CopyNew()
+		Bootstrap()
+		scale_diff := targetScale / zeroScale
 
-	if err = eval.Evaluator.Mul(ciphertext3, 19, ciphertext3); err != nil {
-		panic(err)
-	}
-	ciphertext2 = ciphertext3.CopyNew()
-	if err = eval.Evaluator.Mul(ciphertext3, scale_diff / float64(mods), ciphertext3); err != nil {
-		panic(err)
-	}
-	if err = eval.Rescale(ciphertext3, ciphertext3); err != nil {
-		panic(err)
-	}
-	ciphertext = ciphertext3.CopyNew()
-	Bootstrap()
-	ciphertext3 = ciphertext.CopyNew()
+		ReductionSmall := func() {
+			for i := 0; i < k/l+1; i++ {
+				ciphertext = cvec[i].CopyNew()
+				if i != 0 {
+					if err = eval.Evaluator.Add(ciphertext, ciphertext2, ciphertext); err != nil {
+						panic(err)
+					}
+				}
+				ciphertext2 = ciphertext.CopyNew()
+				if err := eval.Mul(ciphertext, scale_diff/float64(mods), ciphertext); err != nil {
+					panic(err)
+				}
+				if err := eval.Rescale(ciphertext, ciphertext); err != nil {
+					panic(err)
+				}
+				Bootstrap()
+				cvec[i] = ciphertext.CopyNew()
+				if i != (k/l + 1) {
+					if err = eval.Evaluator.Sub(ciphertext2, ciphertext, ciphertext2); err != nil {
+						panic(err)
+					}
+					if err = eval.Evaluator.Mul(ciphertext2, scale_diff/float64(mods*mods), ciphertext2); err != nil {
+						panic(err)
+					}
+					if err := eval.Rescale(ciphertext2, ciphertext2); err != nil {
+						panic(err)
+					}
+					ciphertext = ciphertext2.CopyNew()
+					Bootstrap()
+					ciphertext2 = ciphertext.CopyNew()
+				}
+			}
+		}
 
-	if err = eval.Evaluator.Sub(ciphertext2, ciphertext3, ciphertext2); err != nil {
-		panic(err)
-	} // ciphertext2 = quotient * mods
-	if err = eval.Evaluator.Mul(ciphertext2, scale_diff / float64(mods * mods), ciphertext2); err != nil {
-		panic(err)
-	}
-	if err = eval.Rescale(ciphertext2, ciphertext2); err != nil {
-		panic(err)
-	}
-	ciphertext = ciphertext2.CopyNew()
-	Bootstrap()
-	ciphertext2 = ciphertext.CopyNew()
+		ReductionCompare := func() {
+			for i := 0; i < k/l; i++ {
+				ciphertext = cvec[i].CopyNew()
+				if i != 0 {
+					if err = eval.Evaluator.Add(ciphertext, ciphertext2, ciphertext); err != nil {
+						panic(err)
+					}
+				}
+				ciphertext2 = ciphertext.CopyNew()
+				if err := eval.Mul(ciphertext, scale_diff/float64(mods), ciphertext); err != nil {
+					panic(err)
+				}
+				if err := eval.Rescale(ciphertext, ciphertext); err != nil {
+					panic(err)
+				}
+				Bootstrap()
+				cvec[i] = ciphertext.CopyNew()
+				if err = eval.Evaluator.Sub(ciphertext2, ciphertext, ciphertext2); err != nil {
+					panic(err)
+				}
+				if err = eval.Evaluator.Mul(ciphertext2, scale_diff/float64(mods*mods), ciphertext2); err != nil {
+					panic(err)
+				}
+				if err := eval.Rescale(ciphertext2, ciphertext2); err != nil {
+					panic(err)
+				}
+				// ciphertext = ciphertext2.CopyNew()
+				ciphertext, err = eval.AddNew(ciphertext2, 0.5)
+				Bootstrap()
+				// ciphertext2 = ciphertext.CopyNew()
+				ciphertext2, err = eval.SubNew(ciphertext, 128.0)
+				if i == k/l-1 {
+					ciphertext3, err = eval.AddNew(ciphertext2, 1.0)
+				}
+			}
+		}
 
-	if err = eval.Evaluator.Add(cvec[0], ciphertext3, cvec[0]); err != nil {
-		panic(err)
-	}
-	if err = eval.Evaluator.Add(cvec[1], ciphertext2, cvec[1]); err != nil {
-		panic(err)
-	}
+		Reduction := func() {
+			fmt.Println("----------------------------------")
+			for i := range cvec {
+				ciphertext = cvec[i].CopyNew()
+				if i != 0 {
+					if err = eval.Evaluator.Add(ciphertext, ciphertext2, ciphertext); err != nil {
+						panic(err)
+					}
+				}
+				ciphertext2 = ciphertext.CopyNew()
+				if err := eval.Mul(ciphertext, scale_diff/float64(mods), ciphertext); err != nil {
+					panic(err)
+				}
+				if err := eval.Rescale(ciphertext, ciphertext); err != nil {
+					panic(err)
+				}
+				Bootstrap()
+				cvec[i] = ciphertext.CopyNew()
+				if i != len(cvec)-1 {
+					if err = eval.Evaluator.Sub(ciphertext2, ciphertext, ciphertext2); err != nil {
+						panic(err)
+					}
+					ciphertext3 = ciphertext2.CopyNew()
+					if err = eval.Evaluator.Mul(ciphertext2, scale_diff/float64(mods*mods), ciphertext2); err != nil {
+						panic(err)
+					}
+					if err := eval.Rescale(ciphertext2, ciphertext2); err != nil {
+						panic(err)
+					}
+					ciphertext = ciphertext2.CopyNew()
+					Bootstrap()
+					ciphertext2 = ciphertext.CopyNew()
+					if err = eval.Evaluator.Mul(ciphertext2, mods, ciphertext); err != nil {
+						panic(err)
+					}
+					if err = eval.Evaluator.Sub(ciphertext3, ciphertext, ciphertext3); err != nil {
+						panic(err)
+					}
+					if err = eval.Evaluator.Mul(ciphertext3, scale_diff/float64(mods*mods*mods), ciphertext3); err != nil {
+						panic(err)
+					}
+					if err := eval.Rescale(ciphertext3, ciphertext3); err != nil {
+						panic(err)
+					}
+					ciphertext = ciphertext3.CopyNew()
+					Bootstrap()
+					ciphertext3 = ciphertext.CopyNew()
+					if err = eval.Evaluator.Mul(ciphertext3, mods, ciphertext3); err != nil {
+						panic(err)
+					}
+					if i != 0 {
+						if err = eval.Evaluator.Add(ciphertext2, ciphertext3, ciphertext2); err != nil {
+							panic(err)
+						}
+					}
+				}
+			}
+		}
 
-	// Subtract prime 25519
-	for i := 0; i < k/l; i++ {
-	if i == 0 {
-	if err = eval.Evaluator.Sub(cvec[i], float64(256 - 19), cvec[i]); err != nil {
-		panic(err)
-	}
-	} else if i == (k/l - 1) {
-	if err = eval.Evaluator.Sub(cvec[i], float64(128 - 1), cvec[i]); err != nil {
-		panic(err)
-	}
-	} else {
-	if err = eval.Evaluator.Sub(cvec[i], float64(256 - 1), cvec[i]); err != nil {
-		panic(err)
-	}
-	}
-	} // x-p
+		boot_count = 0
+		Reduction()
 
-	// Compare >= 0
-	ReductionCompare() // ciphertext3 = (x-p >= 0) ? 1 : 0
+		// Multiply the hi part by 38 and add to the lo part
+		for i := 0; i < k/l; i++ {
+			if err = eval.Evaluator.Mul(cvec[i+k/l], 38, cvec[i+k/l]); err != nil {
+				panic(err)
+			}
+			if err = eval.Evaluator.Add(cvec[i], cvec[i+k/l], cvec[i]); err != nil {
+				panic(err)
+			}
+		}
 
-	if err = eval.Evaluator.Sub(ciphertext3, 1, ciphertext3); err != nil {
-		panic(err)
-	}
-	if err = eval.Evaluator.Mul(ciphertext3, -1, ciphertext3); err != nil {
-		panic(err)
-	}
+		cvec[k/l] = ctZero.CopyNew()
 
-	for i := 0; i < k/l; i++ {
-	if i == 0 {
-	if err = eval.Evaluator.Mul(ciphertext3, 256 - 19, ciphertext); err != nil {
-		panic(err)
-	}
-	if err = eval.Evaluator.Add(cvec[i], ciphertext, cvec[i]); err != nil {
-		panic(err)
-	}
-	} else if i == (k/l - 1) {
-	if err = eval.Evaluator.Mul(ciphertext3, 128 - 1, ciphertext); err != nil {
-		panic(err)
-	}
-	if err = eval.Evaluator.Add(cvec[i], ciphertext, cvec[i]); err != nil {
-		panic(err)
-	}
-	} else {
-	if err = eval.Evaluator.Mul(ciphertext3, 256 - 1, ciphertext); err != nil {
-		panic(err)
-	}
-	if err = eval.Evaluator.Add(cvec[i], ciphertext, cvec[i]); err != nil {
-		panic(err)
-	}
-	}
-	}
+		ReductionSmall() // Reduce for k/l + 1 components
 
-	ReductionSmall()
-	
-	elapsed := time.Since(start)
-	fmt.Printf("Multiplication time: %s\n", elapsed)
-	fmt.Println("Number of bootstrapping used: ", boot_count)
+		// Multiply the hi(255) part by 19 and add to the lo part
+		if err = eval.Evaluator.Mul(cvec[k/l-1], 2.0*scale_diff/float64(mods), ciphertext); err != nil {
+			panic(err)
+		} // a + 128b -> 2a
+		if err = eval.Rescale(ciphertext, ciphertext); err != nil {
+			panic(err)
+		}
+		Bootstrap()
+		if err = eval.Evaluator.Mul(cvec[k/l-1], 2, cvec[k/l-1]); err != nil {
+			panic(err)
+		} // a + 128b -> 2a + 256b
+		if err = eval.Evaluator.Sub(cvec[k/l-1], ciphertext, ciphertext2); err != nil {
+			panic(err)
+		} // ciphertext2 = 256b
+		if err = eval.Evaluator.Mul(ciphertext, 0.5*scale_diff/float64(mods), ciphertext); err != nil {
+			panic(err)
+		} // 2a -> a
+		if err = eval.Rescale(ciphertext, ciphertext); err != nil {
+			panic(err)
+		}
+		Bootstrap()
+		cvec[k/l-1] = ciphertext.CopyNew() // cvec[0] ~ cvec[k/l - 1] has modulo 2^255 data.
 
-	//==================
-	//=== 5) DECRYPT ===
-	//==================
+		if err = eval.Evaluator.Mul(ciphertext2, scale_diff/float64(mods*mods), ciphertext2); err != nil {
+			panic(err)
+		} // 256b -> b
+		if err = eval.Rescale(ciphertext2, ciphertext2); err != nil {
+			panic(err)
+		}
+		ciphertext = ciphertext2.CopyNew()
+		Bootstrap()
+		ciphertext2 = ciphertext.CopyNew()
+		if err = eval.Evaluator.Mul(cvec[k/l], 2, ciphertext3); err != nil {
+			panic(err)
+		}
+		if err = eval.Evaluator.Add(ciphertext3, ciphertext2, ciphertext3); err != nil {
+			panic(err)
+		} // ciphertext3 = \floor{n/(2^255)}
 
-	max_err := 0.0
-	mean_err := 0.0
-	// Decrypt, print and compare with the plaintext values
-	for i := 0; i < k/l; i++ {
-	vecTest := printDebug(params, cvec[i], vecWant[i], decryptor, encoder)
-		for j := 0; j < cvec[i].Slots(); j++ {
-			tmp := vecTest[j]
-			this_err_real := math.Abs(real(tmp) - real(vecWant[i][j]))
-			this_err_imag := math.Abs(imag(tmp) - imag(vecWant[i][j]))
-			this_err := math.Sqrt(this_err_real * this_err_real + this_err_imag * this_err_imag)
-			mean_err += this_err
-			max_err = math.Max(max_err, this_err)
+		if err = eval.Evaluator.Mul(ciphertext3, 19, ciphertext3); err != nil {
+			panic(err)
+		}
+		ciphertext2 = ciphertext3.CopyNew()
+		if err = eval.Evaluator.Mul(ciphertext3, scale_diff/float64(mods), ciphertext3); err != nil {
+			panic(err)
+		}
+		if err = eval.Rescale(ciphertext3, ciphertext3); err != nil {
+			panic(err)
+		}
+		ciphertext = ciphertext3.CopyNew()
+		Bootstrap()
+		ciphertext3 = ciphertext.CopyNew()
+
+		if err = eval.Evaluator.Sub(ciphertext2, ciphertext3, ciphertext2); err != nil {
+			panic(err)
+		} // ciphertext2 = quotient * mods
+		if err = eval.Evaluator.Mul(ciphertext2, scale_diff/float64(mods*mods), ciphertext2); err != nil {
+			panic(err)
+		}
+		if err = eval.Rescale(ciphertext2, ciphertext2); err != nil {
+			panic(err)
+		}
+		ciphertext = ciphertext2.CopyNew()
+		Bootstrap()
+		ciphertext2 = ciphertext.CopyNew()
+
+		if err = eval.Evaluator.Add(cvec[0], ciphertext3, cvec[0]); err != nil {
+			panic(err)
+		}
+		if err = eval.Evaluator.Add(cvec[1], ciphertext2, cvec[1]); err != nil {
+			panic(err)
+		}
+
+		// Subtract prime 25519
+		for i := 0; i < k/l; i++ {
+			if i == 0 {
+				if err = eval.Evaluator.Sub(cvec[i], float64(256-19), cvec[i]); err != nil {
+					panic(err)
+				}
+			} else if i == (k/l - 1) {
+				if err = eval.Evaluator.Sub(cvec[i], float64(128-1), cvec[i]); err != nil {
+					panic(err)
+				}
+			} else {
+				if err = eval.Evaluator.Sub(cvec[i], float64(256-1), cvec[i]); err != nil {
+					panic(err)
+				}
+			}
+		} // x-p
+
+		// Compare >= 0
+		ReductionCompare() // ciphertext3 = (x-p >= 0) ? 1 : 0
+
+		if err = eval.Evaluator.Sub(ciphertext3, 1, ciphertext3); err != nil {
+			panic(err)
+		}
+		if err = eval.Evaluator.Mul(ciphertext3, -1, ciphertext3); err != nil {
+			panic(err)
+		}
+
+		for i := 0; i < k/l; i++ {
+			if i == 0 {
+				if err = eval.Evaluator.Mul(ciphertext3, 256-19, ciphertext); err != nil {
+					panic(err)
+				}
+				if err = eval.Evaluator.Add(cvec[i], ciphertext, cvec[i]); err != nil {
+					panic(err)
+				}
+			} else if i == (k/l - 1) {
+				if err = eval.Evaluator.Mul(ciphertext3, 128-1, ciphertext); err != nil {
+					panic(err)
+				}
+				if err = eval.Evaluator.Add(cvec[i], ciphertext, cvec[i]); err != nil {
+					panic(err)
+				}
+			} else {
+				if err = eval.Evaluator.Mul(ciphertext3, 256-1, ciphertext); err != nil {
+					panic(err)
+				}
+				if err = eval.Evaluator.Add(cvec[i], ciphertext, cvec[i]); err != nil {
+					panic(err)
+				}
+			}
+		}
+
+		ReductionSmall()
+
+		elapsed := time.Since(start)
+		totalOperationTime += elapsed
+		fmt.Printf("Multiplication time: %s\n", elapsed)
+		fmt.Println("Number of bootstrapping used: ", boot_count)
+
+		//==================
+		//=== 5) DECRYPT ===
+		//==================
+
+		max_err := 0.0
+		mean_err := 0.0
+		// Decrypt, print and compare with the plaintext values
+		for i := 0; i < k/l; i++ {
+			vecTest := printDebug(params, cvec[i], vecWant[i], decryptor, encoder)
+			for j := 0; j < cvec[i].Slots(); j++ {
+				tmp := vecTest[j]
+				this_err_real := math.Abs(real(tmp) - real(vecWant[i][j]))
+				this_err_imag := math.Abs(imag(tmp) - imag(vecWant[i][j]))
+				this_err := math.Sqrt(this_err_real*this_err_real + this_err_imag*this_err_imag)
+				mean_err += this_err
+				max_err = math.Max(max_err, this_err)
+			}
+		}
+		mean_err /= float64((k / l) * cvec[0].Slots())
+		fmt.Println("Max Error in Log 2: ", math.Log2(max_err))
+		fmt.Println("Mean Error in Log 2: ", math.Log2(mean_err))
+		total_max_err = math.Max(max_err, total_max_err)
+		total_mean_err += mean_err
 	}
-	}
-	mean_err /= float64((k/l) * cvec[0].Slots())
-	fmt.Println("Max Error in Log 2: ", math.Log2(max_err))
-	fmt.Println("Mean Error in Log 2: ", math.Log2(mean_err))
-	total_max_err = math.Max(max_err, total_max_err)
-	total_mean_err += mean_err
-}
 	total_mean_err /= float64(num_iter)
 	fmt.Println("-----------------------------------")
 	fmt.Println()
 	fmt.Println("Total Max Error in Log 2", math.Log2(total_max_err))
 	fmt.Println("Total Mean Error in Log 2", math.Log2(total_mean_err))
+	fmt.Println("Average homomorphic operation time", totalOperationTime/time.Duration(num_iter))
 }
 
 func printDebug(params ckks.Parameters, ciphertext *rlwe.Ciphertext, valuesWant []complex128, decryptor *rlwe.Decryptor, encoder *ckks.Encoder) (valuesTest []complex128) {

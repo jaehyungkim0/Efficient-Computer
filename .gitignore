@@ -52,4 +52,19 @@ _testmain.go
 
 # generated
 /Coding
+/.gocache/
+/logs/
 
+# Local experiment binaries; build with `go run` from the source files instead.
+/add
+/compare
+/mult
+/sub
+/redc-16
+/redc-65537
+/redc-goldilocks
+/conv-btd-16
+/conv-btd-goldilocks
+/conv-btd-sign-65537
+/conv-gbfv-to-cpl25
+/conv-gtd-prime25519
