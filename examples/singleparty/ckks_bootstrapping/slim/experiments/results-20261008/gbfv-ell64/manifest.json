@@ -1,0 +1,22 @@
+{
+  "suite": "full",
+  "gomaxprocs": 1,
+  "source_sha256": {
+    "examples/singleparty/ckks_bootstrapping/slim/conv-btd-sign-65537.go": "30b570f29bef5533561e446d0d8828bfeeae50055e700bd30d2adc0e343aff92",
+    "examples/singleparty/ckks_bootstrapping/slim/conv-btd-goldilocks.go": "0841dcf69b2d06682c208682ed3c5a694d1dffc5f9949a0a49eb308f4f8bbdd9",
+    "examples/singleparty/ckks_bootstrapping/slim/conv-gbfv-to-cpl25.go": "35cce4164ee4c74532d597923aa2dd14da4b91ab738418cbb301acec35a6212c",
+    "examples/singleparty/ckks_bootstrapping/slim/returnpath/bfv.go": "05da5b5d88db87b8bfab87893aff6f7c9aef75091314434ecc11ac6aa76b2af0",
+    "examples/singleparty/ckks_bootstrapping/slim/returnpath/bfv_test.go": "9b55b1b45c8a80ef4bf2061a5ef2615fac22249efc810ad1ba6f7404ed1127b2",
+    "examples/singleparty/ckks_bootstrapping/slim/returnpath/gbfv.go": "10b265485723d1e0ef8f718833c15d09404a602335ac64589684279cb806877b",
+    "examples/singleparty/ckks_bootstrapping/slim/returnpath/gbfv_test.go": "2396237de63d977401ed1b70de77cdd2af83e8331bf557274a35043bcdcc23a3",
+    "examples/singleparty/ckks_bootstrapping/slim/returnpath/inputs.go": "4bb3dfa768dc962688e0ecb4f01d2a85932840089c0b73063579a945fab365b9",
+    "examples/singleparty/ckks_bootstrapping/slim/returnpath/inputs_test.go": "5cb7ae6775191616d373427a218f4538f99f80ea7d19c780cfa031b81bc0b173",
+    "examples/singleparty/ckks_bootstrapping/slim/carrier/buffers.go": "f774ab3e46f19d094a2e1ca19e33d7ef53748e21427a0882e75ef61534fde89f",
+    "examples/singleparty/ckks_bootstrapping/slim/carrier/buffers_test.go": "65348cc60546bd9b5d2cf260154a91810ecccb31894d1fc4e80dd28d87c5d53f",
+    "examples/singleparty/ckks_bootstrapping/slim/carrier/lift.go": "140d8ddbf90ac78181f6d22b715d35d6cf3cc9f9f7d76704e42a9defe68fed43",
+    "examples/singleparty/ckks_bootstrapping/slim/carrier/lift_test.go": "805731b6fb3c82f5203c0580429335f6ae695e284b885cf729378936298f989a",
+    "examples/singleparty/ckks_bootstrapping/slim/carrier/packing.go": "10cf7c38eb55187a061fe03d335d43055637af31e18896cc6887eae4fb71cc16",
+    "examples/singleparty/ckks_bootstrapping/slim/carrier/packing_test.go": "659b38d2a9f02116acc8d2e5793fb910d9b96919621cc97ebd4193fcb2b647bc",
+    "circuits/ckks/bootstrapping/keys.go": "4a0ed31890fc9c26a94225a3f6e92859336e77db90d15a5c8eff370f25118c82"
+  }
+}

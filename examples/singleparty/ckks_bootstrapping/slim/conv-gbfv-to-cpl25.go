@@ -38,6 +38,8 @@ import (
 	"math"
 	"math/big"
 	"math/cmplx"
+	"runtime"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -47,6 +49,8 @@ import (
 	"github.com/tuneinsight/lattigo/v6/circuits/ckks/mod1"
 	"github.com/tuneinsight/lattigo/v6/circuits/ckks/polynomial"
 	"github.com/tuneinsight/lattigo/v6/core/rlwe"
+	"github.com/tuneinsight/lattigo/v6/examples/singleparty/ckks_bootstrapping/slim/carrier"
+	"github.com/tuneinsight/lattigo/v6/examples/singleparty/ckks_bootstrapping/slim/returnpath"
 	"github.com/tuneinsight/lattigo/v6/ring"
 	"github.com/tuneinsight/lattigo/v6/schemes/ckks"
 	"github.com/tuneinsight/lattigo/v6/utils"
@@ -58,7 +62,7 @@ var flagBaseBits = flag.Int("base-bits", 4, "log2 of the radix base b; default 4
 var flagGBFVEll = flag.Int("gbfv-ell", 0, "optional exponent ell for p=2^ell+1; if set, D=ell/base-bits overrides -gbfv-digits.")
 var flagGBFVDigits = flag.Int("gbfv-digits", 64, "GBFV digit capacity D=N/k; plaintext modulus is b^D+1, so the default is 2^256+1.")
 var flagGBFVDensity = flag.String("gbfv-density", "1", "fraction of the fully packed GBFV slots to populate: 1/8, 1/4, 1/2, or 1.")
-var flagOffsetMultiplier = flag.Int("offset-multiplier", 0, "public multiplier A for the redundant A*p* offset before CPL25-side reduction; non-positive uses ceil(beta*K/(beta-1)) with K=beta.")
+var flagOffsetMultiplier = flag.Int("offset-multiplier", 0, "public multiplier A for the redundant A*p* offset before CPL25-side reduction; non-positive uses ceil((beta+1)*K/(beta-1)) with the Mod1 bound K.")
 var flagLegacyRepresentativeShift = flag.Int("representative-shift", 0, "deprecated alias for -offset-multiplier.")
 var flagNumIter = flag.Int("num-iter", 1, "number of randomized homomorphic-operation iterations to run.")
 var flagOperation = flag.String("operation", "all", "homomorphic operation to time: all, conversion, cpl25-compare, or gbfv-compare.")
@@ -71,6 +75,7 @@ var flagTraceDecomp = flag.Bool("trace-decomp", false, "decrypt and trace ConvGt
 var traceParams ckks.Parameters
 var traceDecryptor *rlwe.Decryptor
 var traceEncoder *ckks.Encoder
+var tracePackedOperation string
 
 const lowModulusRingPackMinLogN = 12
 const lowModulusRingPackMaxLogQP = 108.0
@@ -349,7 +354,7 @@ type REDCComputer struct {
 	mapping   map[int][]int
 }
 
-func NewREDCComputer(params ckks.Parameters, eval *bootstrapping.Evaluator, evk *bootstrapping.EvaluationKeys, slotCount, limbBits, totalBits int) (*REDCComputer, error) {
+func NewREDCComputer(params ckks.Parameters, eval *bootstrapping.Evaluator, slotCount, limbBits, totalBits int) (*REDCComputer, error) {
 	if slotCount <= 0 || slotCount > params.MaxSlots() {
 		return nil, errors.New("slotCount must be in [1, params.MaxSlots()]")
 	}
@@ -375,7 +380,7 @@ func NewREDCComputer(params ckks.Parameters, eval *bootstrapping.Evaluator, evk 
 	return &REDCComputer{
 		params:    params,
 		eval:      eval,
-		polyEval:  polynomial.NewEvaluator(params, ckks.NewEvaluator(params, evk)),
+		polyEval:  polynomial.NewEvaluator(params, eval.Evaluator),
 		slotCount: slotCount,
 		limbBits:  limbBits,
 		limbCount: limbCount,
@@ -1314,53 +1319,6 @@ func multiplyByTPolynomial(params ckks.Parameters, eval *ckks.Evaluator, ct *rlw
 	return out, nil
 }
 
-func modRaiseCentered(params ckks.Parameters, ct *rlwe.Ciphertext, targetLevel int) (*rlwe.Ciphertext, error) {
-	if ct.Level() != 0 {
-		return nil, fmt.Errorf("centered ModRaise expects level-0 input, got level %d", ct.Level())
-	}
-	if targetLevel <= 0 || targetLevel > params.MaxLevel() {
-		return nil, fmt.Errorf("invalid centered ModRaise target level %d", targetLevel)
-	}
-
-	out := ct.CopyNew()
-	ringQ0 := params.RingQ().AtLevel(0)
-	for i := range out.Value {
-		ringQ0.INTT(out.Value[i], out.Value[i])
-	}
-
-	out.Resize(out.Degree(), targetLevel)
-	ringQ := params.RingQ().AtLevel(targetLevel)
-	q0 := ringQ.SubRings[0].Modulus
-	halfQ0 := q0 >> 1
-	N := ringQ.N()
-
-	for poly := range out.Value {
-		coeffs0 := out.Value[poly].Coeffs[0]
-		for level := 1; level <= targetLevel; level++ {
-			qi := ringQ.SubRings[level].Modulus
-			coeffs := out.Value[poly].Coeffs[level]
-			for j := 0; j < N; j++ {
-				coeff := coeffs0[j]
-				if coeff >= halfQ0 {
-					magnitude := (q0 - coeff) % qi
-					if magnitude == 0 {
-						coeffs[j] = 0
-					} else {
-						coeffs[j] = qi - magnitude
-					}
-				} else {
-					coeffs[j] = coeff % qi
-				}
-			}
-		}
-	}
-
-	for i := range out.Value {
-		ringQ.NTT(out.Value[i], out.Value[i])
-	}
-	return out, nil
-}
-
 func gbfvTProductDigits(values []*big.Int, gbfv GBFVPlaintextLayout, limbs int) ([][]complex128, error) {
 	out := make([][]complex128, limbs)
 	for i := range out {
@@ -1525,25 +1483,7 @@ func checkSecurityAssumptions(params ckks.Parameters, short bool, ringPackMinLog
 }
 
 func newRingPackingEvaluator(params ckks.Parameters, sk *rlwe.SecretKey, minLogN, keyLevelQ, keyLevelP int) (*rlwe.RingPackingEvaluator, error) {
-	evkParams := rlwe.EvaluationKeyParameters{
-		LevelQ: utils.Pointy(keyLevelQ),
-		LevelP: utils.Pointy(keyLevelP),
-	}
-	rpk := &rlwe.RingPackingEvaluationKey{}
-
-	if minLogN < params.LogN() {
-		ski, err := rpk.GenRingSwitchingKeys(&params, sk, minLogN, evkParams)
-		if err != nil {
-			return nil, err
-		}
-		rpk.GenRepackEvaluationKeys(rpk.Parameters[minLogN], ski[minLogN], evkParams)
-		rpk.GenRepackEvaluationKeys(rpk.Parameters[params.LogN()], ski[params.LogN()], evkParams)
-	} else {
-		rpk.Parameters = map[int]rlwe.ParameterProvider{params.LogN(): &params}
-		rpk.GenRepackEvaluationKeys(&params, sk, evkParams)
-	}
-
-	return rlwe.NewRingPackingEvaluator(rpk), nil
+	return carrier.NewRingPackingEvaluator(params, sk, minLogN, keyLevelQ, keyLevelP)
 }
 
 func extractAndRingPackDigits(
@@ -2052,11 +1992,37 @@ func tracePackedDigits(tag string, ct *rlwe.Ciphertext, radix PackedRadixParams,
 		count = activeDigits
 	}
 	digits := decodePackedDigits(traceParams, ct, traceDecryptor, traceEncoder, radix, activeDigits)
-	fmt.Printf("[trace] %s | level=%d log2(scale)=%.2f digits=", tag, ct.Level(), ct.Scale.Log2())
+	maxDistance, maxImag, low, high := 0.0, 0.0, math.Inf(1), math.Inf(-1)
+	for _, limb := range digits {
+		for _, z := range limb {
+			maxDistance = math.Max(maxDistance, math.Abs(real(z)-math.Round(real(z))))
+			maxImag = math.Max(maxImag, math.Abs(imag(z)))
+			low, high = math.Min(low, real(z)), math.Max(high, real(z))
+		}
+	}
+	fmt.Printf("[trace] %s %s | level=%d log2(scale)=%.2f range=[%.6g,%.6g] integer-distance=%.6g max-imag=%.6g digits=", tracePackedOperation, tag, ct.Level(), ct.Scale.Log2(), low, high, maxDistance, maxImag)
 	for limb := 0; limb < count; limb++ {
 		fmt.Printf(" %.6f", real(digits[limb][0]))
 	}
 	fmt.Println()
+}
+
+// Diagnostic only: the carry recurrence preserves the alphabet {0, 1/2, i}.
+// Distance to that alphabet reveals loss of precision before digit extraction.
+func tracePackedSymbols(tag string, ct *rlwe.Ciphertext) {
+	if !*flagTraceDecomp || traceDecryptor == nil || traceEncoder == nil {
+		return
+	}
+	values := decodeCiphertext(traceParams, ct, traceDecryptor, traceEncoder)
+	maximum, total, worst := 0.0, 0.0, 0
+	for slot, z := range values {
+		distance := math.Min(cmplx.Abs(z), math.Min(cmplx.Abs(z-0.5), cmplx.Abs(z-1i)))
+		total += distance
+		if distance > maximum {
+			maximum, worst = distance, slot
+		}
+	}
+	fmt.Printf("[symbol] %s %s level=%d max=%.8g mean=%.8g slot=%d value=%.8g\n", tracePackedOperation, tag, ct.Level(), maximum, total/float64(len(values)), worst, values[worst])
 }
 
 func countPackedGarbage(params ckks.Parameters, ct *rlwe.Ciphertext, decryptor *rlwe.Decryptor, encoder *ckks.Encoder, radix PackedRadixParams, activeBatch, activeDigits int) int {
@@ -2419,10 +2385,50 @@ func cleaningSymbol(base int, sliceLength int, ctSymbol *rlwe.Ciphertext, cc Pac
 	return ctSymbol, 1, nil
 }
 
+// cleanPackedCarrySymbols applies h(2 Re(z))/2 + i*h(Im(z)), where
+// h(x)=3x^2-2x^3. It fixes {0, 1/2, i} and has zero derivative there.
+// The doubled coordinates avoid a separate division/rescaling level.
+func cleanPackedCarrySymbols(ct *rlwe.Ciphertext, cc PackedRadixContext) (*rlwe.Ciphertext, error) {
+	if ct == nil || ct.Level() < 2 {
+		return nil, fmt.Errorf("leveled carry-symbol cleaning needs two levels")
+	}
+	conjugate, err := cc.eval.ConjugateNew(ct)
+	if err != nil {
+		return nil, err
+	}
+	realTwice, err := cc.eval.AddNew(ct, conjugate)
+	if err != nil {
+		return nil, err
+	}
+	imagTwice, err := cc.eval.SubNew(ct, conjugate)
+	if err != nil {
+		return nil, err
+	}
+	if err = cc.eval.Mul(imagTwice, -1i, imagTwice); err != nil {
+		return nil, err
+	}
+	polyEval := polynomial.NewEvaluator(*cc.params, cc.eval)
+	realPoly := polynomial.NewPolynomial(bignum.NewPolynomial(0, []complex128{0, 0, 1.5, -1}, nil))
+	imagPoly := polynomial.NewPolynomial(bignum.NewPolynomial(0, []complex128{0, 0, 0.75, -0.25}, nil))
+	realClean, err := polyEval.Evaluate(realTwice, realPoly, cc.params.DefaultScale())
+	if err != nil {
+		return nil, err
+	}
+	imagClean, err := polyEval.Evaluate(imagTwice, imagPoly, cc.params.DefaultScale())
+	if err != nil {
+		return nil, err
+	}
+	if err = cc.eval.Mul(imagClean, 1i, imagClean); err != nil {
+		return nil, err
+	}
+	return cc.eval.AddNew(realClean, imagClean)
+}
+
 func applyLCtoCNegCarryPacked(base int, logSliceHalf int, sliceLength int, ctSymbol *rlwe.Ciphertext, ctCarry *rlwe.Ciphertext, cc PackedRadixContext) (*rlwe.Ciphertext, int, error) {
 	params := cc.params
 	eval := cc.eval
 	bootCount := 0
+	tracePackedSymbols("signed carry input", ctSymbol)
 
 	for i := 0; i < logSliceHalf; i++ {
 		ctRot, err := eval.RotateNew(ctSymbol, -1*(1<<i)*(params.MaxSlots())/sliceLength)
@@ -2447,12 +2453,26 @@ func applyLCtoCNegCarryPacked(base int, logSliceHalf int, sliceLength int, ctSym
 		eval.Add(temp, ctSymbol, ctSymbol)
 
 		remainingCarryRounds := logSliceHalf - i - 1
+		tracePackedSymbols(fmt.Sprintf("signed carry round %d", i+1), ctSymbol)
+		// Level availability alone does not bound the error of a long carry
+		// recurrence. Split six-or-more rounds with a quadratic error reset.
+		if logSliceHalf >= 6 && i+1 == logSliceHalf/2 {
+			if ctSymbol.Level() < remainingCarryRounds+4 {
+				return nil, bootCount, fmt.Errorf("signed carry needs %d levels for cleaning, remaining rounds and flag extraction; got %d", remainingCarryRounds+4, ctSymbol.Level())
+			}
+			ctSymbol, err = cleanPackedCarrySymbols(ctSymbol, cc)
+			if err != nil {
+				return nil, bootCount, err
+			}
+			tracePackedSymbols(fmt.Sprintf("signed carry polynomial clean %d", i+1), ctSymbol)
+		}
 		if ctSymbol.Level() < remainingCarryRounds+1 {
 			ctSymbol, _, err = cleaningSymbol(base, sliceLength, ctSymbol, cc)
 			if err != nil {
 				return nil, bootCount, err
 			}
 			bootCount++
+			tracePackedSymbols(fmt.Sprintf("signed carry cleaned %d", i+1), ctSymbol)
 		}
 	}
 
@@ -2509,6 +2529,7 @@ func applyLCtoCCarryPackedWithForcedClean(base int, logSliceHalf int, sliceLengt
 	params := cc.params
 	eval := cc.eval
 	bootCount := 0
+	tracePackedSymbols("unsigned carry input", ctSymbol)
 
 	for i := 0; i < logSliceHalf; i++ {
 		ctRot, err := eval.RotateNew(ctSymbol, -1*(1<<i)*(params.MaxSlots())/sliceLength)
@@ -2532,18 +2553,21 @@ func applyLCtoCCarryPackedWithForcedClean(base int, logSliceHalf int, sliceLengt
 		}
 		eval.Add(temp, ctSymbol, ctSymbol)
 
+		tracePackedSymbols(fmt.Sprintf("unsigned carry round %d", i+1), ctSymbol)
 		if forcedCleanInterval > 0 && (i+1)%forcedCleanInterval == 0 && i+1 < logSliceHalf {
 			ctSymbol, _, err = cleaningSymbol(base, sliceLength, ctSymbol, cc)
 			if err != nil {
 				return nil, bootCount, err
 			}
 			bootCount++
+			tracePackedSymbols(fmt.Sprintf("unsigned carry forced clean %d", i+1), ctSymbol)
 		} else if ctSymbol.Level() <= 5 {
 			ctSymbol, _, err = cleaningSymbol(base, sliceLength, ctSymbol, cc)
 			if err != nil {
 				return nil, bootCount, err
 			}
 			bootCount++
+			tracePackedSymbols(fmt.Sprintf("unsigned carry level clean %d", i+1), ctSymbol)
 		}
 	}
 
@@ -3317,7 +3341,21 @@ func repeatInt(value, count int) []int {
 	return out
 }
 
+// Key generation and DFT construction allocate large temporary buffers. Return
+// those pages before the next setup stage, outside all homomorphic timers.
+func finishSetupStage(label string) {
+	debug.FreeOSMemory()
+	if *flagTraceLevels {
+		var stats runtime.MemStats
+		runtime.ReadMemStats(&stats)
+		fmt.Printf("setup memory: %s live=%.1f MiB retained=%.1f MiB\n", label,
+			float64(stats.HeapAlloc)/(1<<20), float64(stats.Sys-stats.HeapReleased)/(1<<20))
+	}
+}
+
 func main() {
+	runtime.GOMAXPROCS(1)
+	fmt.Printf("Experiment execution: GOMAXPROCS=%d (single-threaded Go computation)\n", runtime.GOMAXPROCS(0))
 	flag.Parse()
 	if *flagBaseBits <= 0 || *flagBaseBits >= 31 {
 		panic("base-bits must be in [1, 30]")
@@ -3515,29 +3553,43 @@ func main() {
 		panic(err)
 	}
 	fmt.Println("Done")
-	fmt.Println("Generating ring-pack refresh bootstrapping evaluation keys...")
-	refreshEvk, _, err := refreshBtpParams.GenEvaluationKeys(sk)
-	if err != nil {
-		panic(err)
+	// Both bootstrappers use the same rings and key distributions. Share keys
+	// and generate only missing rotations instead of retaining a duplicate set.
+	for _, galEl := range refreshBtpParams.GaloisElements(params) {
+		if _, err := evk.GetGaloisKey(galEl); err != nil {
+			evk.GaloisKeys[galEl] = kgen.GenGaloisKeyNew(galEl, sk)
+		}
 	}
-	fmt.Println("Done")
+	finishSetupStage("bootstrapping keys")
 
 	eval, err := bootstrapping.NewEvaluator(btpParams, evk)
 	if err != nil {
 		panic(err)
 	}
-	refreshEval, err := bootstrapping.NewEvaluator(refreshBtpParams, refreshEvk)
+	if err = carrier.CompactDecompositionBuffers(eval.Evaluator.Evaluator, evk, evk.EvkDenseToSparse, evk.EvkSparseToDense); err != nil {
+		panic(err)
+	}
+	finishSetupStage("discrete evaluator")
+	refreshEval, err := bootstrapping.NewEvaluator(refreshBtpParams, evk)
 	if err != nil {
 		panic(err)
 	}
+	if err = carrier.CompactDecompositionBuffers(refreshEval.Evaluator.Evaluator, evk, evk.EvkDenseToSparse, evk.EvkSparseToDense); err != nil {
+		panic(err)
+	}
+	finishSetupStage("refresh evaluator")
 
 	offsetMultiplier := *flagOffsetMultiplier
 	if offsetMultiplier <= 0 && *flagLegacyRepresentativeShift > 0 {
 		offsetMultiplier = *flagLegacyRepresentativeShift
 	}
 	if offsetMultiplier <= 0 {
-		exposedDigitBoundK := base
-		offsetMultiplier = (base*exposedDigitBoundK + (base - 2)) / (base - 1)
+		exposedDigitBoundK := int(mod1Params.K)
+		offsetMultiplier = ((base+1)*exposedDigitBoundK + (base - 2)) / (base - 1)
+	}
+	minimumOffset := ((base+1)*int(mod1Params.K) + base - 2) / (base - 1)
+	if offsetMultiplier < minimumOffset {
+		panic(fmt.Sprintf("offset A=%d is below the public digit-bound requirement %d", offsetMultiplier, minimumOffset))
 	}
 	if params.N()%sourceLimbs != 0 {
 		panic(fmt.Sprintf("GBFV digit capacity D=%d must divide ring degree N=%d", sourceLimbs, params.N()))
@@ -3557,7 +3609,7 @@ func main() {
 			sourceLimbs, cpl25Limbs, params.MaxSlots(), params.MaxSlots()/2))
 	}
 
-	computer, err := NewREDCComputer(params, eval, evk, params.MaxSlots(), limbBits, cpl25Limbs*limbBits)
+	computer, err := NewREDCComputer(params, eval, params.MaxSlots(), limbBits, cpl25Limbs*limbBits)
 	if err != nil {
 		panic(err)
 	}
@@ -3582,9 +3634,7 @@ func main() {
 		panic(fmt.Sprintf("sparse GBFV layout requested %d messages but full layout only supports %d", totalMessages, fullMessages))
 	}
 	extraRotations := make([]int, 0, packedRadix.digits+packedRadix.logDigits+1)
-	for limb := 1; limb < packedRadix.digits; limb++ {
-		extraRotations = append(extraRotations, -limb*packedRadix.batchStride)
-	}
+	// The active carry circuits use power-of-two shifts, not every limb shift.
 	for i := 0; i < packedRadix.logDigits; i++ {
 		extraRotations = append(extraRotations, -(1<<i)*packedRadix.batchStride)
 	}
@@ -3607,10 +3657,27 @@ func main() {
 		}
 		packedKeySet.GaloisKeys[galEl] = gk
 	}
-	for _, gk := range kgen.GenGaloisKeysNew(extraGalEls, sk) {
-		packedKeySet.GaloisKeys[gk.GaloisElement] = gk
+	for _, galEl := range extraGalEls {
+		if _, err := packedKeySet.GetGaloisKey(galEl); err != nil {
+			packedKeySet.GaloisKeys[galEl] = kgen.GenGaloisKeyNew(galEl, sk)
+		}
 	}
-	packedEvaluator := ckks.NewEvaluator(params, packedKeySet)
+	// Return-only rotations are used after cleaning, at the DFT's start
+	// level. Keep shared circuit keys at full level; do not duplicate them.
+	returnDFT := returnpath.GBFVReturnDFT(params)
+	for _, galEl := range returnDFT.GaloisElements(params) {
+		if _, err := packedKeySet.GetGaloisKey(galEl); err != nil {
+			packedKeySet.GaloisKeys[galEl] = kgen.GenGaloisKeyNew(galEl, sk, rlwe.EvaluationKeyParameters{
+				LevelQ: utils.Pointy(returnDFT.LevelQ), LevelP: utils.Pointy(returnDFT.LevelP),
+			})
+		}
+	}
+	// These operations and bootstrapping are sequential. WithKey shares the
+	// existing work buffers while adding the packed-carry rotation keys.
+	packedEvaluator := eval.Evaluator.WithKey(packedKeySet)
+	if err = carrier.CompactDecompositionBuffers(packedEvaluator.Evaluator, packedKeySet, evk.EvkDenseToSparse, evk.EvkSparseToDense); err != nil {
+		panic(err)
+	}
 	refreshCorrection := math.Exp2(float64(refreshLogMessageRatio - mod1Params.LogMessageRatio))
 	packedContext := PackedRadixContext{
 		params:            &params,
@@ -3625,6 +3692,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	finishSetupStage("forward packing")
 
 	fmt.Printf("Running GBFV-to-CPL25 ConvGtD with beta=%d, D=N/k=%d, k=%d, q_GBFV=beta^D+1=%s, q0=%d, density=%d/%d\n",
 		computer.mods, gbfv.digitCount, gbfv.slots, gbfv.plaintextModulus.String(), gbfv.q, densityNum, densityDen)
@@ -3654,7 +3722,8 @@ func main() {
 			return nil, nil, nil, 0, err
 		}
 		traceCoeffsCiphertext(label+" GBFV input coefficients", ctGBFV, 8)
-		ctRaised, err := modRaiseCentered(params, ctGBFV, modRaiseTargetLevel)
+		start := time.Now()
+		ctRaised, err := carrier.LiftWithEvaluator(params, packedEvaluator.Evaluator, ctGBFV, modRaiseTargetLevel, evk.EvkDenseToSparse, evk.EvkSparseToDense)
 		if err != nil {
 			return nil, nil, nil, 0, err
 		}
@@ -3677,13 +3746,16 @@ func main() {
 		}
 		traceCoeffsCiphertext(label+" scale-adjusted t(X)*ct coefficients", ctPrime, 8)
 
-		start := time.Now()
+		interfaceTime := time.Since(start)
 		packed = make([]*rlwe.Ciphertext, outputCount)
 		refreshCounts = make([]int, outputCount)
 		redcCounts = make([]int, outputCount)
 		var ringPackTime, refreshTime, offsetTime, redcTime time.Duration
 
 		for out := 0; out < outputCount; out++ {
+			if *flagTraceDecomp {
+				tracePackedOperation = fmt.Sprintf("%s/output%d", label, out)
+			}
 			baseSlot := out * batch
 			coefficientIndex := func(limb, slot int) int {
 				return limb*gbfv.slots + baseSlot + slot
@@ -3755,8 +3827,8 @@ func main() {
 			redcCounts[out] = bootReduce
 		}
 		elapsed = time.Since(start)
-		fmt.Printf("%s ConvGtD timing breakdown: ring-pack/extract=%s, refresh=%s, public offset=%s, REDC=%s, measured total=%s\n",
-			label, ringPackTime, refreshTime, offsetTime, redcTime, elapsed)
+		fmt.Printf("%s ConvGtD timing breakdown: ModRaise/t/scale=%s, ring-pack/extract=%s, refresh=%s, public offset=%s, REDC=%s, measured total=%s\n",
+			label, interfaceTime, ringPackTime, refreshTime, offsetTime, redcTime, elapsed)
 		return packed, refreshCounts, redcCounts, elapsed, nil
 	}
 
@@ -3777,6 +3849,22 @@ func main() {
 		panic(fmt.Sprintf("unsupported operation %q: use all, conversion, cpl25-compare, or gbfv-compare", *flagOperation))
 	}
 	fmt.Println("Selected operation:", operation)
+	var gbfvReturn *returnpath.GBFVBitReturn
+	if operation == "all" || operation == "gbfv-compare" {
+		// Return packing retains Q[0], Q[1], P[0]. Do not reuse the
+		// forward N=4096 packing profile at this larger key modulus.
+		returnMinLogN := minInt(13, params.LogN())
+		returnPacker, err := newRingPackingEvaluator(params, sk, returnMinLogN, 1, 0)
+		if err != nil {
+			panic(err)
+		}
+		gbfvReturn, err = returnpath.NewGBFVBitReturnWithEvaluator(params, packedEvaluator, returnPacker, base, sourceLimbs, batch)
+		if err != nil {
+			panic(err)
+		}
+		fmt.Printf("Return ring packing parameters: minLogN=%d, keyLevelQ=1, keyLevelP=0, keyLogQP=%.2f\n", returnMinLogN, ringPackingKeyLogQP(params, 1, 0))
+	}
+	finishSetupStage("evaluation ready")
 	totalOperationTime := time.Duration(0)
 
 	for iter := 0; iter < numIter; iter++ {
@@ -3788,12 +3876,14 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
+		returnpath.AddBoundaryMessages(leftMessages, gbfv.plaintextModulus)
 		var rightMessages []*big.Int
 		if operation == "all" || operation == "cpl25-compare" || operation == "gbfv-compare" {
 			rightMessages, err = sampleGBFVMessages(gbfv, totalMessages)
 			if err != nil {
 				panic(err)
 			}
+			returnpath.AddComparisonBoundaries(leftMessages, rightMessages, gbfv.plaintextModulus)
 		}
 
 		var start time.Time
@@ -3829,7 +3919,12 @@ func main() {
 			comparePacked = make([]*rlwe.Ciphertext, outputCount)
 			compareStart := time.Now()
 			for out := 0; out < outputCount; out++ {
-				comparePacked[out], compareCounts[out], err = comparePackedGE(leftPacked[out], rightPacked[out], sourceLimbs, packedRadix, packedContext, refreshEval, refreshCorrection)
+				if *flagTraceDecomp {
+					tracePackedOperation = fmt.Sprintf("comparison/output%d", out)
+				}
+				// p-1=b^D occupies digit D, so comparison must include that
+				// digit rather than silently comparing only the low D digits.
+				comparePacked[out], compareCounts[out], err = comparePackedGE(leftPacked[out], rightPacked[out], packedRadix.digits, packedRadix, packedContext, refreshEval, refreshCorrection)
 				if err != nil {
 					panic(err)
 				}
@@ -3841,10 +3936,27 @@ func main() {
 				fmt.Printf("CPL25 compare time: %s\n", elapsed)
 			}
 		}
+		var returnedGBFV *rlwe.Ciphertext
+		returnBootCount := 0
 		if operation == "all" || operation == "gbfv-compare" {
-			elapsed := time.Since(start)
+			returnStart := time.Now()
+			returnInputs := make([]*rlwe.Ciphertext, len(comparePacked))
+			for i, bit := range comparePacked {
+				var used int
+				returnInputs[i], used, err = refreshForIntToSymbol(bit.CopyNew(), gbfvReturn.RequiredLevel(), false, "GBFV bit return", packedContext)
+				returnBootCount += used
+				if err != nil {
+					panic(err)
+				}
+			}
+			returnedGBFV, err = gbfvReturn.Evaluate(returnInputs)
+			if err != nil {
+				panic(err)
+			}
+			returnTime := time.Since(returnStart)
+			elapsed := leftTime + rightTime + compareTime + returnTime
 			totalOperationTime += elapsed
-			fmt.Printf("End-to-end GBFV comparison time: %s (lhs ConvGtD=%s, rhs ConvGtD=%s, CPL25 compare=%s)\n", elapsed, leftTime, rightTime, compareTime)
+			fmt.Printf("End-to-end GBFV comparison time: %s (lhs ConvGtD=%s, rhs ConvGtD=%s, CPL25 compare=%s, ConvDtG=%s)\n", elapsed, leftTime, rightTime, compareTime, returnTime)
 		}
 
 		totalLeftBootCount := 0
@@ -3898,10 +4010,10 @@ func main() {
 			fmt.Printf("Number of bootstrappings per packed output: CPL25 compare=%d\n", maxCompareCount)
 			fmt.Printf("Total sequential evaluator calls: CPL25 compare=%d\n", totalCompareBootCount)
 		} else {
-			fmt.Printf("Number of bootstrappings per packed output: lhs ConvGtD=%d, rhs ConvGtD=%d, CPL25 compare=%d, total=%d\n",
-				maxRefreshCount+maxREDCCount, maxRefreshCount+maxREDCCount, maxCompareCount, 2*(maxRefreshCount+maxREDCCount)+maxCompareCount)
-			fmt.Printf("Total sequential evaluator calls: lhs ConvGtD=%d, rhs ConvGtD=%d, CPL25 compare=%d, total=%d\n",
-				totalLeftBootCount, totalRightBootCount, totalCompareBootCount, totalLeftBootCount+totalRightBootCount+totalCompareBootCount)
+			fmt.Printf("Number of bootstrappings per packed output: lhs ConvGtD=%d, rhs ConvGtD=%d, CPL25 compare=%d, ConvDtG=%d, total=%d\n",
+				maxRefreshCount+maxREDCCount, maxRefreshCount+maxREDCCount, maxCompareCount, returnBootCount/outputCount, 2*(maxRefreshCount+maxREDCCount)+maxCompareCount+returnBootCount/outputCount)
+			fmt.Printf("Total sequential evaluator calls: lhs ConvGtD=%d, rhs ConvGtD=%d, CPL25 compare=%d, ConvDtG=%d, total=%d\n",
+				totalLeftBootCount, totalRightBootCount, totalCompareBootCount, returnBootCount, totalLeftBootCount+totalRightBootCount+totalCompareBootCount+returnBootCount)
 		}
 		if operation != "cpl25-compare" {
 			fmt.Printf("ConvGtD bootstrapping breakdown per packed output: ring-pack refresh=%d, public A*p* digit offset=0, REDC=%d\n", maxRefreshCount, maxREDCCount)
@@ -3997,7 +4109,7 @@ func main() {
 		meanCanonicalNoise := weightedCanonicalNoise / metricWeight
 		meanCompareNoise := weightedCompareNoise / float64(totalMessages)
 
-		if *flagShort {
+		if *flagShort || *flagTraceDecomp || exactLeftCanonical != totalMessages || (rightPacked != nil && exactRightCanonical != totalMessages) {
 			for limb := 0; limb < minInt(computer.limbCount, 4); limb++ {
 				fmt.Printf("sample lhs CPL25 limb %d: got=%0.4f want=%0.4f\n", limb, real(firstLeftDecoded[limb][0]), real(firstLeftWantDigits[limb][0]))
 				if firstRightDecoded != nil {
@@ -4069,11 +4181,22 @@ func main() {
 			fmt.Println("Max comparison-bit noise in Log 2:", math.Log2(maxCompareNoise))
 			fmt.Println("Mean comparison-bit noise in Log 2:", math.Log2(meanCompareNoise))
 		}
-		if exactLeftCanonical != totalMessages || (rightPacked != nil && exactRightCanonical != totalMessages) {
+		if exactLeftCanonical != totalMessages || (rightPacked != nil && exactRightCanonical != totalMessages) || garbageOutsideConverted != 0 || math.IsNaN(maxCanonicalNoise) || maxCanonicalNoise >= 0.5 {
 			panic("GBFV-to-CPL25 conversion check failed")
 		}
-		if comparePacked != nil && exactComparison != totalMessages {
+		if comparePacked != nil && (exactComparison != totalMessages || math.IsNaN(maxCompareNoise) || maxCompareNoise >= 0.5) {
 			panic("GBFV comparison check failed")
+		}
+		if returnedGBFV != nil {
+			metrics, err := returnpath.CheckGBFVBits(params, decryptor, returnedGBFV, base, sourceLimbs, compareGEBits(leftMessages, rightMessages))
+			if err != nil {
+				panic(err)
+			}
+			fmt.Printf("Final GBFV comparison coefficients: %d/%d; nonzero inactive messages=%d\n", metrics.Exact, metrics.Total, metrics.InactiveFailures)
+			fmt.Printf("Final GBFV decoded digit noise: max Log2=%g, mean Log2=%g\n", math.Log2(metrics.MaxNoise), math.Log2(metrics.MeanNoise))
+			if metrics.Exact != metrics.Total || metrics.InactiveFailures != 0 || metrics.MaxNoise >= 0.5 {
+				panic("final GBFV decryption check failed")
+			}
 		}
 	}
 

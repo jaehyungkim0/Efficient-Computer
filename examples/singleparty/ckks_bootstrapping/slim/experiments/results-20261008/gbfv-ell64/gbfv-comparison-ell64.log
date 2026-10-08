@@ -1,0 +1,33 @@
+Experiment execution: GOMAXPROCS=1 (single-threaded Go computation)
+Security check: main homomorphic parameters use logN=16 and logQP=1538.00 <= 1550.
+Security check: ring packing uses logN=12 with key logQP=92.00 <= 108.
+Bootstrapping parameters: logN=16, logSlots=15, H(192; 32), sigma={3.200000 19.200000}, logQP=1538.000027, levels=30, scale=2^42
+Ring packing parameters: ring-switching enabled, maxLogN=16, minLogN=12, keyLevelQ=0, keyLevelP=0, activeKeyLogQ=46.00, keyLogQP=92.00
+
+Generating bootstrapping evaluation keys...
+Done
+Running GBFV-to-CPL25 ConvGtD with beta=16, D=N/k=16, k=4096, q_GBFV=beta^D+1=18446744073709551617, q0=70368744570881, density=1/1
+CPL25 container digits=32 (16 source digits + 16 zero headroom), outputs=8/8, batch/output=512
+GBFV input is q0-scaled coefficient plaintext at level 0, ModRaised to level 1, multiplied by t(X), scale-adjusted, packed with mode=ring, offset by A*p* with A=19, and reduced modulo p
+Selected operation: gbfv-compare
+Return ring packing parameters: minLogN=13, keyLevelQ=1, keyLevelP=0, keyLogQP=134.00
+lhs ConvGtD timing breakdown: ModRaise/t/scale=52.921958ms, ring-pack/extract=30.383345833s, refresh=1m4.671618374s, public offset=309.050167ms, REDC=11m23.642265335s, measured total=12m59.060575375s
+rhs ConvGtD timing breakdown: ModRaise/t/scale=45.276917ms, ring-pack/extract=29.456399709s, refresh=1m3.636524542s, public offset=313.377291ms, REDC=11m17.755811625s, measured total=12m51.209174834s
+End-to-end GBFV comparison time: 29m44.034439292s (lhs ConvGtD=12m59.060575375s, rhs ConvGtD=12m51.209174834s, CPL25 compare=1m36.916567875s, ConvDtG=2m16.848121208s)
+Number of bootstrappings per packed output: lhs ConvGtD=8, rhs ConvGtD=8, CPL25 compare=1, ConvDtG=1, total=18
+Total sequential evaluator calls: lhs ConvGtD=64, rhs ConvGtD=64, CPL25 compare=8, ConvDtG=8, total=144
+ConvGtD bootstrapping breakdown per packed output: ring-pack refresh=1, public A*p* digit offset=0, REDC=7
+Packed CPL25 slice_length=64, batch_stride=512, tuple_outputs=8
+Exact lhs canonical CPL25 digits after A*p*-offset modular reduction: 4096/4096
+Exact rhs canonical CPL25 digits after A*p*-offset modular reduction: 4096/4096
+Exact packed GBFV comparison bits lhs>=rhs: 4096/4096, max comparison error=0
+Max conversion integer error=0
+Nonzero rounded conversion digits outside active CPL25 support: 0
+Max canonical digit noise in Log 2: -10.316130263039518
+Mean canonical digit noise in Log 2: -12.908882515341709
+Max comparison-bit noise in Log 2: -7.688047416023563
+Mean comparison-bit noise in Log 2: -11.83472043676338
+Final GBFV comparison coefficients: 4096/4096; nonzero inactive messages=0
+Final GBFV decoded digit noise: max Log2=-13.712213360335271, mean Log2=-24.179664062332535
+Total measured GBFV comparison time 29m44.034439292s
+Average GBFV comparison time 29m44.034439292s

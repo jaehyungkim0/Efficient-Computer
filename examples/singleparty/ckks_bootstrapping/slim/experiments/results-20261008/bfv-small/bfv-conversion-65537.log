@@ -1,0 +1,21 @@
+Experiment execution: GOMAXPROCS=1 (single-threaded Go computation)
+Bootstrapping parameters: logN=16, logSlots=15, H(192; 32), sigma={3.200000 19.200000}, logQP=1469.999998, levels=25, scale=2^50
+
+Generating bootstrapping evaluation keys...
+Done
+Running ConvBtD + comparison + sign evaluation for p=65537, beta=16
+Timing starts from coefficient-encoded level-0 input; ConvBtD includes the initial ModUp, placement, and public pK offset.
+Selected operation: conversion
+Input coverage: 21 boundary values plus random residues; equality and adjacent-value comparisons included.
+ConvBtD conversion time: 3m51.564299208s
+Bootstrapping breakdown: conversion=32, total=32
+Exact lhs output matches: 32768/32768, max |out-want|=0
+Max integer error in Log 2: -Inf
+Max digit noise in Log 2: -23.111368403366107
+Mean digit noise in Log 2: -29.032209234533553
+-----------------------------------
+
+Total Max Integer Error in Log 2 -Inf
+Average output mismatch rate 0
+Total measured conversion time 3m51.564299208s
+Average conversion time 3m51.564299208s

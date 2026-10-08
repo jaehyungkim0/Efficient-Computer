@@ -1,0 +1,19 @@
+{
+  "status": "passed",
+  "exit_code": 0,
+  "reason": null,
+  "peak_rss_mib": 16591.69,
+  "rss_budget_mib": 24576,
+  "seconds": 483.66,
+  "command": [
+    "go",
+    "run",
+    "examples/singleparty/ckks_bootstrapping/slim/conv-btd-sign-65537.go",
+    "-prime",
+    "8179",
+    "-operation",
+    "bfv-sign"
+  ],
+  "log": "bfv-sign-8179.log",
+  "gomaxprocs": 1
+}

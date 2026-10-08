@@ -1,0 +1,17 @@
+{
+  "status": "passed",
+  "exit_code": 0,
+  "reason": null,
+  "peak_rss_mib": 16334.38,
+  "rss_budget_mib": 24576,
+  "seconds": 787.64,
+  "command": [
+    "go",
+    "run",
+    "examples/singleparty/ckks_bootstrapping/slim/conv-btd-goldilocks.go",
+    "-operation",
+    "conversion"
+  ],
+  "log": "bfv-conversion-goldilocks.log",
+  "gomaxprocs": 1
+}

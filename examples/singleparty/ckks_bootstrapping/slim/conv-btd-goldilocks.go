@@ -11,6 +11,7 @@ import (
 	"math"
 	"math/big"
 	"math/cmplx"
+	"runtime"
 	"strings"
 	"time"
 
@@ -19,6 +20,8 @@ import (
 	"github.com/tuneinsight/lattigo/v6/circuits/ckks/mod1"
 	"github.com/tuneinsight/lattigo/v6/circuits/ckks/polynomial"
 	"github.com/tuneinsight/lattigo/v6/core/rlwe"
+	"github.com/tuneinsight/lattigo/v6/examples/singleparty/ckks_bootstrapping/slim/carrier"
+	"github.com/tuneinsight/lattigo/v6/examples/singleparty/ckks_bootstrapping/slim/returnpath"
 	"github.com/tuneinsight/lattigo/v6/ring"
 	"github.com/tuneinsight/lattigo/v6/schemes/ckks"
 	"github.com/tuneinsight/lattigo/v6/utils"
@@ -251,14 +254,15 @@ func traceSlotsCiphertext(tag string, ct *rlwe.Ciphertext, count int) {
 }
 
 type GoldilocksComputer struct {
-	params    ckks.Parameters
-	eval      *bootstrapping.Evaluator
-	polyEval  *polynomial.Evaluator
-	limbBits  int
-	limbCount int
-	mods      uint64
-	degEval   int
-	mapping   map[int][]int
+	params                      ckks.Parameters
+	eval                        *bootstrapping.Evaluator
+	polyEval                    *polynomial.Evaluator
+	limbBits                    int
+	limbCount                   int
+	mods                        uint64
+	degEval                     int
+	mapping                     map[int][]int
+	inputToSparse, inputToDense *rlwe.EvaluationKey
 }
 
 func NewGoldilocksComputer(params ckks.Parameters, eval *bootstrapping.Evaluator, evk *bootstrapping.EvaluationKeys, limbBits, totalBits int) (*GoldilocksComputer, error) {
@@ -933,48 +937,7 @@ func (c *GoldilocksComputer) consumeBootstrapBudget(digits []*rlwe.Ciphertext) (
 }
 
 func (c *GoldilocksComputer) modRaiseCenteredToLevel(ctIn *rlwe.Ciphertext, targetLevel int) (*rlwe.Ciphertext, error) {
-	baseLevel := ctIn.Level()
-	if baseLevel < 0 {
-		return nil, errors.New("input ciphertext has invalid level")
-	}
-	if targetLevel < baseLevel {
-		return nil, fmt.Errorf("target level %d is smaller than input level %d", targetLevel, baseLevel)
-	}
-	if targetLevel > c.params.MaxLevel() {
-		return nil, fmt.Errorf("target level %d exceeds max level %d", targetLevel, c.params.MaxLevel())
-	}
-
-	ringBase := c.params.RingQ().AtLevel(baseLevel)
-	ringTarget := c.params.RingQ().AtLevel(targetLevel)
-	out := ckks.NewCiphertext(c.params, ctIn.Degree(), targetLevel)
-	*out.MetaData = *ctIn.MetaData
-	out.IsBatched = ctIn.IsBatched
-
-	coeffs := make([]*big.Int, ringBase.N())
-	for i := range coeffs {
-		coeffs[i] = new(big.Int)
-	}
-	tmp := new(big.Int)
-	for polyIndex := range ctIn.Value {
-		polyBase := *ctIn.Value[polyIndex].CopyNew()
-		ringBase.INTT(polyBase, polyBase)
-		ringBase.PolyToBigintCentered(polyBase, 1, coeffs)
-
-		for level, qi := range ringTarget.ModuliChain()[:targetLevel+1] {
-			qBig := new(big.Int).SetUint64(qi)
-			for j := 0; j < ringTarget.N(); j++ {
-				tmp.Mod(coeffs[j], qBig)
-				out.Value[polyIndex].Coeffs[level][j] = tmp.Uint64()
-			}
-		}
-		ringTarget.NTT(out.Value[polyIndex], out.Value[polyIndex])
-	}
-
-	return out, nil
-}
-
-func (c *GoldilocksComputer) modRaiseCentered(ctIn *rlwe.Ciphertext) (*rlwe.Ciphertext, error) {
-	return c.modRaiseCenteredToLevel(ctIn, c.params.MaxLevel())
+	return carrier.Lift(c.params, ctIn, targetLevel, c.inputToSparse, c.inputToDense)
 }
 
 func (c *GoldilocksComputer) prepareCoeffInputGoldilocks(ctCoeff *rlwe.Ciphertext, placementFactor *big.Float, publicOffsetCoeffs []*big.Float, targetLevel, adjustmentLevel int, residualScale *big.Float) (*rlwe.Ciphertext, error) {
@@ -1246,6 +1209,8 @@ func compareGEBit(lhs, rhs *big.Int) *big.Int {
 }
 
 func main() {
+	runtime.GOMAXPROCS(1)
+	fmt.Printf("Experiment execution: GOMAXPROCS=%d (single-threaded Go computation)\n", runtime.GOMAXPROCS(0))
 	flag.Parse()
 
 	logN := 16
@@ -1358,10 +1323,22 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-
+	computer.inputToSparse, computer.inputToDense, err = carrier.LiftKeys(params, sk, inputLevel, adjustmentLevel, btpParams.EphemeralSecretWeight)
+	if err != nil {
+		panic(err)
+	}
+	inputKeyLogQP := math.Log2(float64(params.P()[0]))
+	for _, qi := range params.Q()[:inputLevel+1] {
+		inputKeyLogQP += math.Log2(float64(qi))
+	}
+	fmt.Printf("Input-lift encapsulation: H=%d, levelQ=%d, levelP=0, key logQP=%.2f; both base primes retained\n", btpParams.EphemeralSecretWeight, inputLevel, inputKeyLogQP)
 	modulus := new(big.Int).Lsh(big.NewInt(1), 64)
 	modulus.Sub(modulus, new(big.Int).Lsh(big.NewInt(1), 32))
 	modulus.Add(modulus, big.NewInt(1))
+	bfvReturn, err := returnpath.NewBFVBitReturn(params, evk, inputLevel, modulus)
+	if err != nil {
+		panic(err)
+	}
 
 	fmt.Printf("Running ConvBtD + comparison + sign evaluation for Goldilocks prime p=%s using 2^64 ≡ 2^32 - 1 mod p, beta=%d\n", modulus.String(), computer.mods)
 	fmt.Println("Timing starts from high-precision coefficient-encoded input; ConvBtD includes centered modraise, placement, and public pK offset.")
@@ -1429,11 +1406,9 @@ func main() {
 		if new(big.Float).SetInt64(publicOffsetK).Cmp(publicOffsetKFloat) < 0 {
 			publicOffsetK++
 		}
-		// One extra public multiple of p protects the approximate
-		// coefficient-carrier path from landing just below zero at the
-		// 72-bit lazy-radix boundary.
-		publicOffsetK++
-		publicOffsetK++
+		// Retain the (K+2)*p public offset within the 72-bit carrier range.
+		// This offset is removed by the subsequent modular reduction.
+		publicOffsetK += 2
 	}
 	baseRatioFloat, _ := baseMessageRatio.Float64()
 	residualScaleFloat, _ := residualScale.Float64()
@@ -1446,6 +1421,8 @@ func main() {
 		publicOffsetCoeffs[i] = new(big.Float).SetPrec(160).Set(publicOffset)
 	}
 	logSlots := params.LogMaxSlots()
+	boundaries := returnpath.BoundaryValues(modulus, 63)
+	fmt.Printf("Input coverage: %d boundary values plus random residues; equality and adjacent-value comparisons included.\n", len(boundaries))
 
 	sampleResidueInput := func() (want, signWant []*big.Int, coeffValues []*big.Float, err error) {
 		want = make([]*big.Int, params.MaxSlots())
@@ -1459,6 +1436,9 @@ func main() {
 			mVal, err := rand.Int(rand.Reader, modulus)
 			if err != nil {
 				return nil, nil, nil, err
+			}
+			if i < len(boundaries) {
+				mVal.Set(boundaries[i])
 			}
 			want[i] = new(big.Int).Set(mVal)
 			signWant[i] = signTopBitZeroGoldilocks(want[i])
@@ -1496,6 +1476,10 @@ func main() {
 			panic(err)
 		}
 		compareWant := make([]*big.Int, params.MaxSlots())
+		for i := range boundaries {
+			rightWant[i] = returnpath.BoundaryRHS(want[i], modulus, i)
+			rightCoeffValues[int(utils.BitReverse64(uint64(i), logSlots))].Quo(new(big.Float).SetPrec(160).SetInt(rightWant[i]), modulusFloat)
+		}
 		for i := range compareWant {
 			compareWant[i] = compareGEBit(want[i], rightWant[i])
 		}
@@ -1531,6 +1515,7 @@ func main() {
 		if operation == "all" || operation == "conversion" || operation == "bfv-compare" || operation == "bfv-sign" {
 			start = time.Now()
 		}
+		leftConvStart := time.Now()
 		out, decomposed, reduceFlag, bootLeftConv, err := computer.ConvBtDGoldilocksFromCoeffInput(cT, cModulus, cZero[0], placementFactor, publicOffsetCoeffs, inputLevel, adjustmentLevel, residualScale)
 		if err != nil {
 			panic(err)
@@ -1543,25 +1528,40 @@ func main() {
 		}
 
 		var rightOut []*rlwe.Ciphertext
+		leftConvTime := time.Since(leftConvStart)
 		var rightReduceFlag *rlwe.Ciphertext
 		var compare, sign *rlwe.Ciphertext
+		var bfvCompare, bfvSign *rlwe.Ciphertext
+		var rightConvTime, compareTime, signTime, compareReturnTime, signReturnTime time.Duration
 		bootRightConv := 0
 		bootCompare := 0
 		bootSign := 0
 
 		if operation == "all" || operation == "kim25-compare" || operation == "bfv-compare" {
+			rightConvStart := time.Now()
 			rightOut, _, rightReduceFlag, bootRightConv, err = computer.ConvBtDGoldilocksFromCoeffInput(cRight, cModulus, cZero[0], placementFactor, publicOffsetCoeffs, inputLevel, adjustmentLevel, residualScale)
 			if err != nil {
 				panic(err)
 			}
+			rightConvTime = time.Since(rightConvStart)
 		}
 		if operation == "kim25-compare" {
 			start = time.Now()
 		}
 		if operation == "all" || operation == "kim25-compare" || operation == "bfv-compare" {
+			compareStart := time.Now()
 			compare, bootCompare, err = computer.compareGE(out, rightOut)
 			if err != nil {
 				panic(err)
+			}
+			compareTime = time.Since(compareStart)
+			if operation != "kim25-compare" {
+				returnStart := time.Now()
+				bfvCompare, err = bfvReturn.Evaluate(compare)
+				if err != nil {
+					panic(err)
+				}
+				compareReturnTime = time.Since(returnStart)
 			}
 			if operation == "kim25-compare" {
 				elapsed := time.Since(start)
@@ -1573,6 +1573,8 @@ func main() {
 				elapsed := time.Since(start)
 				totalOperationTime += elapsed
 				fmt.Printf("End-to-end BFV comparison time: %s\n", elapsed)
+				fmt.Printf("BFV comparison timing breakdown: lhs ConvBtD=%s, rhs ConvBtD=%s, Kim25 compare=%s, ConvDtB=%s\n", leftConvTime, rightConvTime, compareTime, compareReturnTime)
+				fmt.Println("Return-path bootstrappings: ConvDtB=0 (polynomial cleaning, StC, public scale alignment)")
 				fmt.Printf("Bootstrapping breakdown: lhs ConvBtD=%d, rhs ConvBtD=%d, Kim25 compare=%d, total=%d\n",
 					bootLeftConv, bootRightConv, bootCompare, bootLeftConv+bootRightConv+bootCompare)
 			}
@@ -1581,20 +1583,33 @@ func main() {
 			start = time.Now()
 		}
 		if operation == "all" || operation == "kim25-sign" || operation == "bfv-sign" {
+			signStart := time.Now()
 			sign, bootSign, err = computer.SignTopBitZeroGoldilocks(out, cTopBitThreshold)
 			if err != nil {
 				panic(err)
 			}
 			if operation == "kim25-sign" {
+				signTime = time.Since(signStart)
 				elapsed := time.Since(start)
 				totalOperationTime += elapsed
 				fmt.Printf("Kim25 sign time: %s\n", elapsed)
 				fmt.Printf("Bootstrapping breakdown: Kim25 sign=%d, total=%d\n", bootSign, bootSign)
 			}
+			if operation != "kim25-sign" {
+				signTime = time.Since(signStart)
+				returnStart := time.Now()
+				bfvSign, err = bfvReturn.Evaluate(sign)
+				if err != nil {
+					panic(err)
+				}
+				signReturnTime = time.Since(returnStart)
+			}
 			if operation == "bfv-sign" {
 				elapsed := time.Since(start)
 				totalOperationTime += elapsed
 				fmt.Printf("End-to-end BFV sign time: %s\n", elapsed)
+				fmt.Printf("BFV sign timing breakdown: ConvBtD=%s, Kim25 sign=%s, ConvDtB=%s\n", leftConvTime, signTime, signReturnTime)
+				fmt.Println("Return-path bootstrappings: ConvDtB=0 (polynomial cleaning, StC, public scale alignment)")
 				fmt.Printf("Bootstrapping breakdown: ConvBtD=%d, Kim25 sign=%d, total=%d\n",
 					bootLeftConv, bootSign, bootLeftConv+bootSign)
 			}
@@ -1608,6 +1623,24 @@ func main() {
 				bootLeftConv, bootRightConv, bootCompare, bootSign, bootCount)
 		}
 
+		if bfvCompare != nil {
+			metrics, checkErr := returnpath.CheckBFVBits(params, decryptor, bfvCompare, modulus, compareWant)
+			if checkErr != nil {
+				panic(checkErr)
+			}
+			if checkErr = metrics.Report("comparison"); checkErr != nil {
+				panic(checkErr)
+			}
+		}
+		if bfvSign != nil {
+			metrics, checkErr := returnpath.CheckBFVBits(params, decryptor, bfvSign, modulus, signWant)
+			if checkErr != nil {
+				panic(checkErr)
+			}
+			if checkErr = metrics.Report("sign"); checkErr != nil {
+				panic(checkErr)
+			}
+		}
 		outDecoded := make([][]complex128, len(out))
 		decompDecoded := make([][]complex128, len(decomposed))
 		for i := range out {
@@ -1718,6 +1751,11 @@ func main() {
 		if signDecoded != nil {
 			fmt.Printf("Exact sign matches: %d/%d, max |sign-want|=%s\n", exactSign, len(signWant), maxSignErr.String())
 		}
+		if exactOut != len(want) || (rightOutDecoded != nil && exactRightOut != len(rightWant)) ||
+			(compareDecoded != nil && exactCompare != len(compareWant)) ||
+			(signDecoded != nil && exactSign != len(signWant)) {
+			panic("forward conversion or backend logical-operation check failed")
+		}
 		if maxOutputErr.Sign() > 0 {
 			fmt.Println("Max integer error in Log 2:", math.Log2(maxOutErrFloat))
 		} else {
@@ -1729,7 +1767,10 @@ func main() {
 		} else {
 			fmt.Println("Max digit noise in Log 2: -Inf")
 		}
-		meanCombinedNoise := 0.5 * (meanNoise + meanRightNoise)
+		meanCombinedNoise := meanNoise
+		if rightOutDecoded != nil {
+			meanCombinedNoise = 0.5 * (meanNoise + meanRightNoise)
+		}
 		if meanCombinedNoise > 0 {
 			fmt.Println("Mean digit noise in Log 2:", math.Log2(meanCombinedNoise))
 		} else {

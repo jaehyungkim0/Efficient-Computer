@@ -1,0 +1,22 @@
+{
+  "status": "passed",
+  "exit_code": 0,
+  "reason": null,
+  "cleanup_errors": [],
+  "peak_rss_mib": 22143.48,
+  "rss_budget_mib": 24576,
+  "seconds": 196.4,
+  "command": [
+    "go",
+    "run",
+    "examples/singleparty/ckks_bootstrapping/slim/conv-gbfv-to-cpl25.go",
+    "-gbfv-ell",
+    "1024",
+    "-operation",
+    "conversion",
+    "-gbfv-density",
+    "1/8"
+  ],
+  "log": "gbfv-sparse-ell1024-1-8.log",
+  "gomaxprocs": 1
+}

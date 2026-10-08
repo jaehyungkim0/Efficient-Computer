@@ -11,6 +11,7 @@ import (
 	"math"
 	"math/big"
 	"math/cmplx"
+	"runtime"
 	"strings"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/tuneinsight/lattigo/v6/circuits/ckks/mod1"
 	"github.com/tuneinsight/lattigo/v6/circuits/ckks/polynomial"
 	"github.com/tuneinsight/lattigo/v6/core/rlwe"
+	"github.com/tuneinsight/lattigo/v6/examples/singleparty/ckks_bootstrapping/slim/returnpath"
 	"github.com/tuneinsight/lattigo/v6/ring"
 	"github.com/tuneinsight/lattigo/v6/schemes/ckks"
 	"github.com/tuneinsight/lattigo/v6/utils"
@@ -1832,6 +1834,8 @@ func minLevel(cts []*rlwe.Ciphertext) int {
 }
 
 func main() {
+	runtime.GOMAXPROCS(1)
+	fmt.Printf("Experiment execution: GOMAXPROCS=%d (single-threaded Go computation)\n", runtime.GOMAXPROCS(0))
 	flag.Parse()
 
 	LogN := 16
@@ -1970,6 +1974,10 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	bfvReturn, err := returnpath.NewBFVBitReturn(params, evk, 0, modulus)
+	if err != nil {
+		panic(err)
+	}
 
 	fmt.Printf("Running ConvBtD + comparison + sign evaluation for p=%s, beta=%d\n", modulus.String(), computer.mods)
 	fmt.Println("Timing starts from coefficient-encoded level-0 input; ConvBtD includes the initial ModUp, placement, and public pK offset.")
@@ -2058,6 +2066,8 @@ func main() {
 		publicOffsetCoeffs[i] = publicOffsetFloat
 	}
 	logSlots := params.LogMaxSlots()
+	boundaries := returnpath.BoundaryValues(modulus, signBitIndex)
+	fmt.Printf("Input coverage: %d boundary values plus random residues; equality and adjacent-value comparisons included.\n", len(boundaries))
 
 	sampleResidueInput := func() (want, signWant []*big.Int, coeffValues []float64, err error) {
 		want = make([]*big.Int, params.MaxSlots())
@@ -2068,6 +2078,9 @@ func main() {
 			mVal, err := rand.Int(rand.Reader, modulus)
 			if err != nil {
 				return nil, nil, nil, err
+			}
+			if i < len(boundaries) {
+				mVal.Set(boundaries[i])
 			}
 			want[i] = new(big.Int).Set(mVal)
 			signWant[i] = signBitZeroAt(want[i], signBitIndex)
@@ -2082,6 +2095,7 @@ func main() {
 
 	encryptCoeffInput := func(tag string, coeffValues []float64) (*rlwe.Ciphertext, error) {
 		coeffPt := ckks.NewPlaintext(params, 0)
+		coeffPt.Scale = rlwe.NewScale(params.Q()[0])
 		coeffPt.LogDimensions = ring.Dimensions{Rows: 0, Cols: logSlots}
 		coeffPt.IsBatched = false
 		if err := encoder.Encode(coeffValues, coeffPt); err != nil {
@@ -2106,6 +2120,11 @@ func main() {
 			panic(err)
 		}
 		compareWant := make([]*big.Int, params.MaxSlots())
+		for i := range boundaries {
+			rightWant[i] = returnpath.BoundaryRHS(want[i], modulus, i)
+			v, _ := new(big.Float).Quo(new(big.Float).SetInt(rightWant[i]), modulusFloat).Float64()
+			rightCoeffValues[int(utils.BitReverse64(uint64(i), logSlots))] = v
+		}
 		for i := range compareWant {
 			compareWant[i] = compareGEBit(want[i], rightWant[i])
 		}
@@ -2124,6 +2143,7 @@ func main() {
 			start = time.Now()
 		}
 		var out []*rlwe.Ciphertext
+		leftConvStart := time.Now()
 		var reduceFlag *rlwe.Ciphertext
 		bootLeftConv := 0
 		leftConvDetail := ConvBtDBreakdown{}
@@ -2141,6 +2161,7 @@ func main() {
 			panic(err)
 		}
 		if operation == "conversion" {
+			// Conversion measurements stop at the radix representation.
 			elapsed := time.Since(start)
 			totalOperationTime += elapsed
 			fmt.Printf("ConvBtD conversion time: %s\n", elapsed)
@@ -2151,8 +2172,11 @@ func main() {
 		}
 
 		var rightOut []*rlwe.Ciphertext
+		leftConvTime := time.Since(leftConvStart)
 		var rightReduceFlag *rlwe.Ciphertext
 		var compare, sign *rlwe.Ciphertext
+		var bfvCompare, bfvSign *rlwe.Ciphertext
+		var rightConvTime, compareTime, signTime, compareReturnTime, signReturnTime time.Duration
 		bootRightConv := 0
 		rightConvDetail := ConvBtDBreakdown{}
 		rightHasConvDetail := false
@@ -2160,6 +2184,7 @@ func main() {
 		bootSign := 0
 
 		if operation == "all" || operation == "kim25-compare" || operation == "bfv-compare" {
+			rightConvStart := time.Now()
 			if useMersenne8191Reduction {
 				rightOut, _, rightReduceFlag, bootRightConv, err = computer.ConvBtD8191FromCoeffInput(cRightCombined, cModulus, cZero[0], placementFactor, publicOffsetCoeffs, "rhs/input")
 			} else if useGeneralREDCReduction {
@@ -2172,14 +2197,26 @@ func main() {
 			if err != nil {
 				panic(err)
 			}
+			rightConvTime = time.Since(rightConvStart)
 		}
 		if operation == "kim25-compare" {
+			// Backend-only measurements deliberately exclude both conversions.
 			start = time.Now()
 		}
 		if operation == "all" || operation == "kim25-compare" || operation == "bfv-compare" {
+			compareStart := time.Now()
 			compare, bootCompare, err = computer.compareGE(out, rightOut)
 			if err != nil {
 				panic(err)
+			}
+			compareTime = time.Since(compareStart)
+			if operation != "kim25-compare" {
+				returnStart := time.Now()
+				bfvCompare, err = bfvReturn.Evaluate(compare)
+				if err != nil {
+					panic(err)
+				}
+				compareReturnTime = time.Since(returnStart)
 			}
 			if operation == "kim25-compare" {
 				elapsed := time.Since(start)
@@ -2191,6 +2228,8 @@ func main() {
 				elapsed := time.Since(start)
 				totalOperationTime += elapsed
 				fmt.Printf("End-to-end BFV comparison time: %s\n", elapsed)
+				fmt.Printf("BFV comparison timing breakdown: lhs ConvBtD=%s, rhs ConvBtD=%s, Kim25 compare=%s, ConvDtB=%s\n", leftConvTime, rightConvTime, compareTime, compareReturnTime)
+				fmt.Println("Return-path bootstrappings: ConvDtB=0 (polynomial cleaning, StC, public scale alignment)")
 				fmt.Printf("Bootstrapping breakdown: lhs ConvBtD=%d, rhs ConvBtD=%d, Kim25 compare=%d, total=%d\n",
 					bootLeftConv, bootRightConv, bootCompare, bootLeftConv+bootRightConv+bootCompare)
 				if leftHasConvDetail {
@@ -2205,6 +2244,7 @@ func main() {
 			start = time.Now()
 		}
 		if operation == "all" || operation == "kim25-sign" || operation == "bfv-sign" {
+			signStart := time.Now()
 			if useLinearSign {
 				sign, bootSign, err = computer.SignZeroTopBinaryLimb(out, signTopLimb)
 			} else {
@@ -2214,15 +2254,27 @@ func main() {
 				panic(err)
 			}
 			if operation == "kim25-sign" {
+				signTime = time.Since(signStart)
 				elapsed := time.Since(start)
 				totalOperationTime += elapsed
 				fmt.Printf("Kim25 sign time: %s\n", elapsed)
 				fmt.Printf("Bootstrapping breakdown: Kim25 sign=%d, total=%d\n", bootSign, bootSign)
 			}
+			if operation != "kim25-sign" {
+				signTime = time.Since(signStart)
+				returnStart := time.Now()
+				bfvSign, err = bfvReturn.Evaluate(sign)
+				if err != nil {
+					panic(err)
+				}
+				signReturnTime = time.Since(returnStart)
+			}
 			if operation == "bfv-sign" {
 				elapsed := time.Since(start)
 				totalOperationTime += elapsed
 				fmt.Printf("End-to-end BFV sign time: %s\n", elapsed)
+				fmt.Printf("BFV sign timing breakdown: ConvBtD=%s, Kim25 sign=%s, ConvDtB=%s\n", leftConvTime, signTime, signReturnTime)
+				fmt.Println("Return-path bootstrappings: ConvDtB=0 (polynomial cleaning, StC, public scale alignment)")
 				fmt.Printf("Bootstrapping breakdown: ConvBtD=%d, Kim25 sign=%d, total=%d\n",
 					bootLeftConv, bootSign, bootLeftConv+bootSign)
 				if leftHasConvDetail {
@@ -2245,6 +2297,24 @@ func main() {
 			}
 		}
 
+		if bfvCompare != nil {
+			metrics, checkErr := returnpath.CheckBFVBits(params, decryptor, bfvCompare, modulus, compareWant)
+			if checkErr != nil {
+				panic(checkErr)
+			}
+			if checkErr = metrics.Report("comparison"); checkErr != nil {
+				panic(checkErr)
+			}
+		}
+		if bfvSign != nil {
+			metrics, checkErr := returnpath.CheckBFVBits(params, decryptor, bfvSign, modulus, signWant)
+			if checkErr != nil {
+				panic(checkErr)
+			}
+			if checkErr = metrics.Report("sign"); checkErr != nil {
+				panic(checkErr)
+			}
+		}
 		outDecoded := make([][]complex128, len(out))
 		for i := range out {
 			outDecoded[i] = decodeCiphertext(params, out[i], decryptor, encoder)
@@ -2326,6 +2396,11 @@ func main() {
 		if signDecoded != nil {
 			fmt.Printf("Exact sign matches: %d/%d, max |sign-want|=%s\n", exactSign, len(signWant), maxSignErr.String())
 		}
+		if exactOut != len(want) || (rightOutDecoded != nil && exactRightOut != len(rightWant)) ||
+			(compareDecoded != nil && exactCompare != len(compareWant)) ||
+			(signDecoded != nil && exactSign != len(signWant)) {
+			panic("forward conversion or backend logical-operation check failed")
+		}
 		if maxOutputErr.Sign() > 0 {
 			fmt.Println("Max integer error in Log 2:", math.Log2(maxOutputErrFloat))
 		} else {
@@ -2336,7 +2411,10 @@ func main() {
 		} else {
 			fmt.Println("Max digit noise in Log 2: -Inf")
 		}
-		meanCombinedNoise := 0.5 * (meanNoise + meanRightNoise)
+		meanCombinedNoise := meanNoise
+		if rightOutDecoded != nil {
+			meanCombinedNoise = 0.5 * (meanNoise + meanRightNoise)
+		}
 		if meanCombinedNoise > 0 {
 			fmt.Println("Mean digit noise in Log 2:", math.Log2(meanCombinedNoise))
 		} else {

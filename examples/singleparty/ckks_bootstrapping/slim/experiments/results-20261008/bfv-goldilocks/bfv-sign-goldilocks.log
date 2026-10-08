@@ -1,0 +1,30 @@
+Experiment execution: GOMAXPROCS=1 (single-threaded Go computation)
+Bootstrapping parameters: logN=16, logSlots=15, H(192; 32), sigma={3.200000 19.200000}, logQP=1549.999999, levels=26, scale=2^50
+
+Generating bootstrapping evaluation keys...
+Done
+Input-lift encapsulation: H=32, levelQ=1, levelP=0, key logQP=158.00; both base primes retained
+Running ConvBtD + comparison + sign evaluation for Goldilocks prime p=18446744069414584321 using 2^64 ≡ 2^32 - 1 mod p, beta=16
+Timing starts from high-precision coefficient-encoded input; ConvBtD includes centered modraise, placement, and public pK offset.
+Selected operation: bfv-sign
+Input base message ratio q_base/scale≈1.0000, residual scale≈2^36.00, public offset multiplier=18
+Input coverage: 55 boundary values plus random residues; equality and adjacent-value comparisons included.
+End-to-end BFV sign time: 12m42.0721865s
+BFV sign timing breakdown: ConvBtD=12m17.4311995s, Kim25 sign=24.079945834s, ConvDtB=561.039875ms
+Return-path bootstrappings: ConvDtB=0 (polynomial cleaning, StC, public scale alignment)
+Bootstrapping breakdown: ConvBtD=92, Kim25 sign=3, total=95
+Final BFV sign coefficients: 32768/32768; nonzero inactive coefficients=0
+Final BFV sign decoded noise: max Log2=-23.346528604577063, mean Log2=-26.02556467458854
+Extracted value mod p matches: 32768/32768, max modular error=0 (Log2 -Inf)
+Exact lhs output matches: 32768/32768, max |out-want|=0
+Exact sign matches: 32768/32768, max |sign-want|=0
+Max integer error in Log 2: -Inf
+Max digit noise in Log 2: -19.360857453013388
+Mean digit noise in Log 2: -27.130437110684277
+-----------------------------------
+
+Total Max Integer Error in Log 2 -Inf
+Average output mismatch rate 0
+Average sign mismatch rate 0
+Total measured BFV sign time 12m42.0721865s
+Average BFV sign time 12m42.0721865s

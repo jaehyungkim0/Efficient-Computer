@@ -1,0 +1,25 @@
+Experiment execution: GOMAXPROCS=1 (single-threaded Go computation)
+Security check: main homomorphic parameters use logN=16 and logQP=1544.00 <= 1550.
+Security check: ring packing uses logN=12 with key logQP=90.00 <= 108.
+Bootstrapping parameters: logN=16, logSlots=15, H(192; 32), sigma={3.200000 19.200000}, logQP=1544.000001, levels=31, scale=2^41
+Ring packing parameters: ring-switching enabled, maxLogN=16, minLogN=12, keyLevelQ=0, keyLevelP=0, activeKeyLogQ=45.00, keyLogQP=90.00
+
+Generating bootstrapping evaluation keys...
+Done
+Running GBFV-to-CPL25 ConvGtD with beta=16, D=N/k=256, k=256, q_GBFV=beta^D+1=179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137217, q0=35184372744193, density=1/2
+CPL25 container digits=512 (256 source digits + 256 zero headroom), outputs=4/8, batch/output=32
+GBFV input is q0-scaled coefficient plaintext at level 0, ModRaised to level 1, multiplied by t(X), scale-adjusted, packed with mode=ring, offset by A*p* with A=19, and reduced modulo p
+Selected operation: conversion
+lhs ConvGtD timing breakdown: ModRaise/t/scale=47.952083ms, ring-pack/extract=14.569335584s, refresh=34.041650458s, public offset=148.138541ms, REDC=8m9.041332251s, measured total=8m57.848416083s
+ConvGtD conversion time: 8m57.848416083s
+Number of bootstrappings per packed output: ConvGtD=10
+Total sequential evaluator calls: ConvGtD=40
+ConvGtD bootstrapping breakdown per packed output: ring-pack refresh=1, public A*p* digit offset=0, REDC=9
+Packed CPL25 slice_length=1024, batch_stride=32, tuple_outputs=4
+Exact lhs canonical CPL25 digits after A*p*-offset modular reduction: 128/128
+Max conversion integer error=0
+Nonzero rounded conversion digits outside active CPL25 support: 0
+Max canonical digit noise in Log 2: -9.119302242414014
+Mean canonical digit noise in Log 2: -11.799588822504269
+Total measured conversion time 8m57.848416083s
+Average conversion time 8m57.848416083s

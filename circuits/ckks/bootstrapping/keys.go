@@ -138,7 +138,13 @@ func (p Parameters) genEncapsulationEvaluationKeysNew(skDense *rlwe.SecretKey) (
 	kgenDense := rlwe.NewKeyGenerator(params)
 	skSparse := kgenSparse.GenSecretKeyWithHammingWeightNew(p.EphemeralSecretWeight)
 
-	EvkDenseToSparse = kgenDense.GenEvaluationKeyNew(skDense, skSparse)
+	// The sparse output secret only exists modulo Q[0]*P[0]. Generating
+	// this key at higher Q levels would leave its output secret zero there.
+	levelZero := 0
+	EvkDenseToSparse = kgenDense.GenEvaluationKeyNew(skDense, skSparse, rlwe.EvaluationKeyParameters{
+		LevelQ: &levelZero,
+		LevelP: &levelZero,
+	})
 	EvkSparseToDense = kgenDense.GenEvaluationKeyNew(skSparse, skDense)
 	return
 }

@@ -92,6 +92,11 @@ Conversion experiments:
 - `conv-gbfv-to-cpl25.go` implements the current `ConvGtD` proof of concept:
   two GBFV-style coefficient carriers are converted into the packed
   discrete-CKKS radix encoding and compared in that representation.
+- `carrier/` provides public encapsulated modulus raising and active-modulus
+  ring-packing setup; `returnpath/` provides the bit-specialized BFV/GBFV
+  output conversions and independent decryption checks.
+- `experiments/` contains the bounded experiment runner and its tests;
+  `security/` contains the exact parameter export and pinned estimator audit.
 
 ## Scope Relative to the Paper
 
@@ -102,10 +107,11 @@ complete library implementation of every interface in the paper.
   interface used in the experiments, including the public `pK` offset,
   iterative digit decomposition, modular reduction, comparison, and
   sign/top-bit-style evaluation. They use CKKS coefficient ciphertexts as the
-  experimental carrier for the BFV-compatible coefficient representation.
+  experimental carrier for the BFV-compatible coefficient representation,
+  and return comparison/sign bits to that coefficient representation.
 - The GBFV-side file implements the forward `ConvGtD` conversion and packed
-  comparison experiment. It does not implement the reverse `ConvDtG` conversion
-  as a standalone experiment.
+  comparison, including the bit-specialized `ConvDtG` return path. It does not
+  implement arbitrary-message reverse conversion as a standalone experiment.
 - The `-gbfv-density` option measures the sparse-packing latency effect for the
   GBFV conversion experiment by producing only the required number of packed
   radix ciphertexts. It is separate from the sparse BFV and sparse CKKS
@@ -113,6 +119,61 @@ complete library implementation of every interface in the paper.
 - The code checks the algebraic output by decrypting and rounding the active
   support after each experiment. A successful run reports exact active-support
   digits or comparison bits and zero integer/comparison error.
+
+## Experiment Interfaces and Validation
+
+The three paper experiment drivers enforce `GOMAXPROCS=1`. The
+[bounded runner](experiments/README.md) serializes heavy jobs, records peak
+process-group RSS, and applies a 24 GiB cutoff to full-size runs. Key generation,
+setup, and final decryption checks are outside homomorphic-operation timers.
+
+The `bfv-compare`, `bfv-sign`, and `gbfv-compare` modes include the return
+conversion, not just the backend logical operation. They report forward,
+backend, and return costs separately. The `conversion` mode measures only
+the forward conversion; backend-only modes are labeled separately.
+
+BFV logical outputs are cleaned, transformed from real slots to coefficients,
+and aligned to the BFV scale `q/p` by actual multiplication and rescaling.
+The first `N/2` coefficients hold the bits in the input's bit-reversed order;
+the other half is zero. Validation uses the BFV decryption rule
+`round(p * phase / q) mod p`, independently of CKKS scale metadata.
+
+GBFV comparison uses a bit-specialized `ConvDtG`: cleaning, slot-to-coefficient
+conversion, extraction/reordering, base ring packing, and public multiplication
+by the inverse plaintext polynomial followed by modulus switching. Return
+packing uses degree `2^13` at two Q primes and one P prime; it does not reuse
+the forward degree-`2^12`, one-Q-prime key profile. Validation applies the
+GBFV coefficient decryption rule and checks inactive messages as well.
+
+All four full-size GBFV conversion and comparison settings have passed with
+the corrected offset and return path. Full-size BFV conversion, comparison,
+and sign passed for `p=65537` and Goldilocks, as did sign at `p=8179`.
+Inputs mix random messages with zero, largest residues, carry boundaries,
+equality, and adjacent comparisons. Raw approximation errors are reported
+separately from exact outputs after rounding. Small-ring tests supplement,
+rather than replace, these full-size checks.
+The three partial-output conversions also passed; all 18 measured cases,
+raw logs, and source-hash manifests are recorded in
+[experiments/RESULTS.md](experiments/RESULTS.md).
+
+### Public Offset and Carry Precision
+
+The GBFV default is `A=ceil((b+1)*K/(b-1))=19` for `b=K=16`, matching the
+paper's exposed-digit bound. The first modulus raise uses the sparse
+encapsulation secret, consistently with the lifting bound. The public
+`A*p*` offset adds no bootstrapping.
+
+Two initial lazy-carry passes reduce the maximum shifted digit bound from
+`595` to `52` and then `18`, below the ordinary carry limit `31`.
+Long signed-carry chains also use midpoint cubic symbol cleaning. This
+suppresses approximation error in the alphabet `{0, 1/2, i}` using two
+levels, not another bootstrap. The routine checks its remaining level
+requirements rather than silently skipping cleaning.
+
+The [security audit](security/README.md) records exact primes, estimator
+revision, cost-model assumptions, and the evaluation-key correction.
+Arbitrary-message reverse conversion and the paper's other applications are
+outside these bit-specialized experiments.
 
 ## Current GBFV-to-Packed-Radix Flow
 
@@ -124,14 +185,15 @@ At a high level, the implementation does the following:
 
 1. Encodes the input as a level-0 GBFV-style coefficient plaintext for the
    restricted modulus family `p = b^D + 1`.
-2. Modraises the carrier and multiplies by the GBFV plaintext polynomial. The
-   code uses the sign convention `b - X^h` for its MSB-oriented coefficient
-   layout; this is the implementation-side convention for exposing the bounded
-   signed radix coefficients used by the conversion.
+2. Switches to the sparse encapsulation key at the input modulus, modraises,
+   switches back, and multiplies by the GBFV plaintext polynomial. The code
+   uses the sign convention `b - X^h` for its MSB-oriented coefficient layout;
+   this is the implementation-side convention for exposing the bounded signed
+   radix coefficients used by the conversion.
 3. Adjusts the scale by public constant multiplication/rescaling so that the
    exposed coefficients enter the packed radix interface at the intended scale.
 4. Extracts and ring-packs the coefficients into the packed radix layout using
-   Lattigo's `rlwe` repacking interface with ring switching. The default secure
+   Lattigo's `rlwe` repacking interface with ring switching. The default full-size
    path uses `logN=16` for homomorphic computation and a checked smaller-ring
    key path for ring packing.
 5. Performs one ordinary CKKS refresh after ring packing.
@@ -142,6 +204,9 @@ At a high level, the implementation does the following:
    radix ciphertexts modulo `p` using backend length `L=2D`.
 8. Repeats the conversion for a second operand and evaluates packed comparison
    bits `lhs >= rhs` using the lazy-carry sign/nonnegative-mask path.
+9. For `gbfv-compare`, cleans and returns the comparison bits through the
+   bit-specialized `ConvDtG` path. Final verification uses GBFV decryption,
+   rather than stopping at the intermediate CKKS slots.
 
 The default settings use `b=16`, `D=64`, and therefore
 `p=16^64+1=2^256+1`. The same setting can also be selected as
@@ -154,6 +219,9 @@ parameters. The ring-packing key path is checked separately; by default it uses
 ring switching down to `logN=12` only when the active key modulus is within the
 documented smaller-ring security guard. The `-short` flag deliberately disables
 these production-size parameters and is only for quick precision/debug checks.
+These are parameter-budget guards, not a replacement for running the lattice
+estimator. The current audit, exact estimator revision, cost-model distinction,
+and evaluation-key correction are recorded in [security/README.md](security/README.md).
 
 For `b=16`, the current full-density conversion schedules use the following
 bootstrapping counts per packed output:
@@ -212,7 +280,10 @@ operation-level APIs, drafting and editing new REDC/ConvBtD/ConvGtD
 proof-of-concept code, renaming helper
 functions for clearer correspondence with the algorithms, debugging numerical
 and level-management issues, suggesting and checking example parameter changes,
-and drafting this README.
+drafting this README, implementing and testing return conversions, auditing
+evaluation-key and security-estimator inputs, and running resource-bounded
+validation and experiments under the authors' direction. Reported measurements
+come from program outputs, not language-model-generated numerical results.
 
 Some standard helper utilities in the inherited codebase, including
 CRT/FFT/DFT-style routines, predate this artifact. The disclosure above does

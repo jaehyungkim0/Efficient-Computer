@@ -1,0 +1,25 @@
+Experiment execution: GOMAXPROCS=1 (single-threaded Go computation)
+Security check: main homomorphic parameters use logN=16 and logQP=1548.00 <= 1550.
+Security check: ring packing uses logN=12 with key logQP=88.00 <= 108.
+Bootstrapping parameters: logN=16, logSlots=15, H(192; 32), sigma={3.200000 19.200000}, logQP=1547.999997, levels=32, scale=2^40
+Ring packing parameters: ring-switching enabled, maxLogN=16, minLogN=12, keyLevelQ=0, keyLevelP=0, activeKeyLogQ=44.00, keyLogQP=88.00
+
+Generating bootstrapping evaluation keys...
+Done
+Running GBFV-to-CPL25 ConvGtD with beta=16, D=N/k=64, k=1024, q_GBFV=beta^D+1=115792089237316195423570985008687907853269984665640564039457584007913129639937, q0=17592186175489, density=1/1
+CPL25 container digits=128 (64 source digits + 64 zero headroom), outputs=8/8, batch/output=128
+GBFV input is q0-scaled coefficient plaintext at level 0, ModRaised to level 1, multiplied by t(X), scale-adjusted, packed with mode=ring, offset by A*p* with A=19, and reduced modulo p
+Selected operation: conversion
+lhs ConvGtD timing breakdown: ModRaise/t/scale=47.516208ms, ring-pack/extract=29.140711251s, refresh=1m10.753731957s, public offset=366.941126ms, REDC=12m57.571138501s, measured total=14m37.88005125s
+ConvGtD conversion time: 14m37.88005125s
+Number of bootstrappings per packed output: ConvGtD=8
+Total sequential evaluator calls: ConvGtD=64
+ConvGtD bootstrapping breakdown per packed output: ring-pack refresh=1, public A*p* digit offset=0, REDC=7
+Packed CPL25 slice_length=256, batch_stride=128, tuple_outputs=8
+Exact lhs canonical CPL25 digits after A*p*-offset modular reduction: 1024/1024
+Max conversion integer error=0
+Nonzero rounded conversion digits outside active CPL25 support: 0
+Max canonical digit noise in Log 2: -5.2056239098352615
+Mean canonical digit noise in Log 2: -10.868881909917487
+Total measured conversion time 14m37.88005125s
+Average conversion time 14m37.88005125s

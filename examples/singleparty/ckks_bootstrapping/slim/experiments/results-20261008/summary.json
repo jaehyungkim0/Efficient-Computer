@@ -1,0 +1,291 @@
+{
+  "measurement_dates_utc": [
+    "2026-10-07",
+    "2026-10-08"
+  ],
+  "iterations_per_case": 1,
+  "gomaxprocs": 1,
+  "go_version": "go1.24.2 darwin/arm64",
+  "machine": "Apple M4 Max, 128 GiB RAM, macOS 15.7.9",
+  "go_soft_memory_limit_gib": 16,
+  "process_group_rss_cutoff_gib": 24,
+  "cases": [
+    {
+      "case": "bfv-conversion-65537",
+      "homomorphic_seconds": 231.564299208,
+      "peak_rss_mib": 16638.88,
+      "log_sha256": "1d6efa8e440115141ce0c3b59d1c09db63d95c437eaebaecafebcac8872c9295",
+      "exact_checks": [
+        "Exact lhs output matches: 32768/32768, max |out-want|=0"
+      ],
+      "bootstrapping_counts": [
+        "Bootstrapping breakdown: conversion=32, total=32"
+      ],
+      "log": "bfv-small/bfv-conversion-65537.log"
+    },
+    {
+      "case": "bfv-comparison-65537",
+      "homomorphic_seconds": 555.170441041,
+      "peak_rss_mib": 16605.38,
+      "log_sha256": "4d2ae27bcd8ef81b9c2a71698db51d4a5bb656c42edaea5c63e2aef49a31b28e",
+      "exact_checks": [
+        "Final BFV comparison coefficients: 32768/32768; nonzero inactive coefficients=0",
+        "Exact lhs output matches: 32768/32768, max |out-want|=0",
+        "Exact rhs output matches: 32768/32768, max |out-want|=0",
+        "Exact comparison matches: 32768/32768, max |compare-want|=0"
+      ],
+      "bootstrapping_counts": [
+        "Return-path bootstrappings: ConvDtB=0 (polynomial cleaning, StC, public scale alignment)",
+        "Bootstrapping breakdown: lhs ConvBtD=32, rhs ConvBtD=32, Kim25 compare=13, total=77"
+      ],
+      "log": "bfv-small/bfv-comparison-65537.log"
+    },
+    {
+      "case": "bfv-sign-65537",
+      "homomorphic_seconds": 254.166715667,
+      "peak_rss_mib": 16645.45,
+      "log_sha256": "1ecfbfaad9e9e3311c741250069e9c97a2144d163bbab7d527e213db2a3e837d",
+      "exact_checks": [
+        "Final BFV sign coefficients: 32768/32768; nonzero inactive coefficients=0",
+        "Exact lhs output matches: 32768/32768, max |out-want|=0",
+        "Exact sign matches: 32768/32768, max |sign-want|=0"
+      ],
+      "bootstrapping_counts": [
+        "Return-path bootstrappings: ConvDtB=0 (polynomial cleaning, StC, public scale alignment)",
+        "Bootstrapping breakdown: ConvBtD=32, Kim25 sign=3, total=35"
+      ],
+      "log": "bfv-small/bfv-sign-65537.log"
+    },
+    {
+      "case": "bfv-sign-8179",
+      "homomorphic_seconds": 451.824318833,
+      "peak_rss_mib": 16591.69,
+      "log_sha256": "f5b575bbbf138d4c2940599abae35c16f432d13297452b68f4441ea5a757bcf0",
+      "exact_checks": [
+        "Final BFV sign coefficients: 32768/32768; nonzero inactive coefficients=0",
+        "Exact lhs output matches: 32768/32768, max |out-want|=0",
+        "Exact sign matches: 32768/32768, max |sign-want|=0"
+      ],
+      "bootstrapping_counts": [
+        "Return-path bootstrappings: ConvDtB=0 (polynomial cleaning, StC, public scale alignment)",
+        "Bootstrapping breakdown: ConvBtD=62, Kim25 sign=0, total=62"
+      ],
+      "log": "bfv-small/bfv-sign-8179.log"
+    },
+    {
+      "case": "bfv-conversion-goldilocks",
+      "homomorphic_seconds": 744.550360417,
+      "peak_rss_mib": 16334.38,
+      "log_sha256": "9a98f87d77afed8e0d37e2dc890180578df007104c8d90562b55f959ce69e256",
+      "exact_checks": [
+        "Extracted value mod p matches: 32768/32768, max modular error=0 (Log2 -Inf)",
+        "Exact lhs output matches: 32768/32768, max |out-want|=0"
+      ],
+      "bootstrapping_counts": [
+        "Bootstrapping breakdown: conversion=92, total=92"
+      ],
+      "log": "bfv-goldilocks/bfv-conversion-goldilocks.log"
+    },
+    {
+      "case": "bfv-comparison-goldilocks",
+      "homomorphic_seconds": 1980.685916166,
+      "peak_rss_mib": 16832.08,
+      "log_sha256": "646920ad32a3b0ac5b2d9dadc82e1444416603efe6790d4a2175a5b5653df95b",
+      "exact_checks": [
+        "Final BFV comparison coefficients: 32768/32768; nonzero inactive coefficients=0",
+        "Extracted value mod p matches: 32768/32768, max modular error=0 (Log2 -Inf)",
+        "Exact lhs output matches: 32768/32768, max |out-want|=0",
+        "Exact rhs output matches: 32768/32768, max |out-want|=0",
+        "Exact comparison matches: 32768/32768, max |compare-want|=0"
+      ],
+      "bootstrapping_counts": [
+        "Return-path bootstrappings: ConvDtB=0 (polynomial cleaning, StC, public scale alignment)",
+        "Bootstrapping breakdown: lhs ConvBtD=92, rhs ConvBtD=92, Kim25 compare=37, total=221"
+      ],
+      "log": "bfv-goldilocks/bfv-comparison-goldilocks.log"
+    },
+    {
+      "case": "bfv-sign-goldilocks",
+      "homomorphic_seconds": 762.0721865,
+      "peak_rss_mib": 16491.33,
+      "log_sha256": "3ff8e6bfa3c1b7077689af51703a03b3aaa42c5d0d96086ce4851c725d31cb4d",
+      "exact_checks": [
+        "Final BFV sign coefficients: 32768/32768; nonzero inactive coefficients=0",
+        "Extracted value mod p matches: 32768/32768, max modular error=0 (Log2 -Inf)",
+        "Exact lhs output matches: 32768/32768, max |out-want|=0",
+        "Exact sign matches: 32768/32768, max |sign-want|=0"
+      ],
+      "bootstrapping_counts": [
+        "Return-path bootstrappings: ConvDtB=0 (polynomial cleaning, StC, public scale alignment)",
+        "Bootstrapping breakdown: ConvBtD=92, Kim25 sign=3, total=95"
+      ],
+      "log": "bfv-goldilocks/bfv-sign-goldilocks.log"
+    },
+    {
+      "case": "gbfv-conversion-ell64",
+      "homomorphic_seconds": 759.791971333,
+      "peak_rss_mib": 20057.53,
+      "log_sha256": "714a88fe0470f9124bc64714b76330167eeaffd3ec939b8d69f8087d3d2b2a83",
+      "exact_checks": [
+        "Exact lhs canonical CPL25 digits after A*p*-offset modular reduction: 4096/4096"
+      ],
+      "bootstrapping_counts": [
+        "Number of bootstrappings per packed output: ConvGtD=8",
+        "Total sequential evaluator calls: ConvGtD=64"
+      ],
+      "log": "gbfv-ell64/gbfv-conversion-ell64.log"
+    },
+    {
+      "case": "gbfv-comparison-ell64",
+      "homomorphic_seconds": 1784.0344392920001,
+      "peak_rss_mib": 21890.27,
+      "log_sha256": "2699e6053299927915c6c9a7fa69a3d2d3954454cbbb27f3aefd4cb68bb4197b",
+      "exact_checks": [
+        "Exact lhs canonical CPL25 digits after A*p*-offset modular reduction: 4096/4096",
+        "Exact rhs canonical CPL25 digits after A*p*-offset modular reduction: 4096/4096",
+        "Exact packed GBFV comparison bits lhs>=rhs: 4096/4096, max comparison error=0",
+        "Final GBFV comparison coefficients: 4096/4096; nonzero inactive messages=0"
+      ],
+      "bootstrapping_counts": [
+        "Number of bootstrappings per packed output: lhs ConvGtD=8, rhs ConvGtD=8, CPL25 compare=1, ConvDtG=1, total=18",
+        "Total sequential evaluator calls: lhs ConvGtD=64, rhs ConvGtD=64, CPL25 compare=8, ConvDtG=8, total=144"
+      ],
+      "log": "gbfv-ell64/gbfv-comparison-ell64.log"
+    },
+    {
+      "case": "gbfv-conversion-ell16",
+      "homomorphic_seconds": 573.224000625,
+      "peak_rss_mib": 19002.36,
+      "log_sha256": "ca5e7ba4029a9e50d01c7e0709534c91391c0a61db296256b44ab6b01c213a6e",
+      "exact_checks": [
+        "Exact lhs canonical CPL25 digits after A*p*-offset modular reduction: 16384/16384"
+      ],
+      "bootstrapping_counts": [
+        "Number of bootstrappings per packed output: ConvGtD=7",
+        "Total sequential evaluator calls: ConvGtD=56"
+      ],
+      "log": "gbfv-final/gbfv-conversion-ell16.log"
+    },
+    {
+      "case": "gbfv-comparison-ell16",
+      "homomorphic_seconds": 1430.006825626,
+      "peak_rss_mib": 20350.11,
+      "log_sha256": "6385d5b6551c9a47d92b1bec715d68e37e70f9aaf6029d5a42d81361c4e136f7",
+      "exact_checks": [
+        "Exact lhs canonical CPL25 digits after A*p*-offset modular reduction: 16384/16384",
+        "Exact rhs canonical CPL25 digits after A*p*-offset modular reduction: 16384/16384",
+        "Exact packed GBFV comparison bits lhs>=rhs: 16384/16384, max comparison error=0",
+        "Final GBFV comparison coefficients: 16384/16384; nonzero inactive messages=0"
+      ],
+      "bootstrapping_counts": [
+        "Number of bootstrappings per packed output: lhs ConvGtD=7, rhs ConvGtD=7, CPL25 compare=1, ConvDtG=1, total=16",
+        "Total sequential evaluator calls: lhs ConvGtD=56, rhs ConvGtD=56, CPL25 compare=8, ConvDtG=8, total=128"
+      ],
+      "log": "gbfv-final/gbfv-comparison-ell16.log"
+    },
+    {
+      "case": "gbfv-conversion-ell256",
+      "homomorphic_seconds": 877.88005125,
+      "peak_rss_mib": 22625.92,
+      "log_sha256": "4a4821c86125d1d384d0c097cab304c41ee572fe46e7a79ab2cba18ba947ea80",
+      "exact_checks": [
+        "Exact lhs canonical CPL25 digits after A*p*-offset modular reduction: 1024/1024"
+      ],
+      "bootstrapping_counts": [
+        "Number of bootstrappings per packed output: ConvGtD=8",
+        "Total sequential evaluator calls: ConvGtD=64"
+      ],
+      "log": "gbfv-final/gbfv-conversion-ell256.log"
+    },
+    {
+      "case": "gbfv-comparison-ell256",
+      "homomorphic_seconds": 2026.7778014579999,
+      "peak_rss_mib": 24371.36,
+      "log_sha256": "4530c6664d26e098c2d7caa17dece187bd48b622e6a2e1a722d802ed322e30ab",
+      "exact_checks": [
+        "Exact lhs canonical CPL25 digits after A*p*-offset modular reduction: 1024/1024",
+        "Exact rhs canonical CPL25 digits after A*p*-offset modular reduction: 1024/1024",
+        "Exact packed GBFV comparison bits lhs>=rhs: 1024/1024, max comparison error=0",
+        "Final GBFV comparison coefficients: 1024/1024; nonzero inactive messages=0"
+      ],
+      "bootstrapping_counts": [
+        "Number of bootstrappings per packed output: lhs ConvGtD=8, rhs ConvGtD=8, CPL25 compare=1, ConvDtG=1, total=18",
+        "Total sequential evaluator calls: lhs ConvGtD=64, rhs ConvGtD=64, CPL25 compare=8, ConvDtG=8, total=144"
+      ],
+      "log": "gbfv-final/gbfv-comparison-ell256.log"
+    },
+    {
+      "case": "gbfv-conversion-ell1024",
+      "homomorphic_seconds": 1073.816221333,
+      "peak_rss_mib": 22171.06,
+      "log_sha256": "03fb858441e8047d37a3b934be299fcd00a64a16e3bcfccdb08bdb99e8564176",
+      "exact_checks": [
+        "Exact lhs canonical CPL25 digits after A*p*-offset modular reduction: 256/256"
+      ],
+      "bootstrapping_counts": [
+        "Number of bootstrappings per packed output: ConvGtD=10",
+        "Total sequential evaluator calls: ConvGtD=80"
+      ],
+      "log": "gbfv-final/gbfv-conversion-ell1024.log"
+    },
+    {
+      "case": "gbfv-comparison-ell1024",
+      "homomorphic_seconds": 2404.555406334,
+      "peak_rss_mib": 24137.59,
+      "log_sha256": "bcd2175f90c572a685b232075548e17f8219037dd43d09566c9e53345d6df2b0",
+      "exact_checks": [
+        "Exact lhs canonical CPL25 digits after A*p*-offset modular reduction: 256/256",
+        "Exact rhs canonical CPL25 digits after A*p*-offset modular reduction: 256/256",
+        "Exact packed GBFV comparison bits lhs>=rhs: 256/256, max comparison error=0",
+        "Final GBFV comparison coefficients: 256/256; nonzero inactive messages=0"
+      ],
+      "bootstrapping_counts": [
+        "Number of bootstrappings per packed output: lhs ConvGtD=10, rhs ConvGtD=10, CPL25 compare=1, ConvDtG=1, total=22",
+        "Total sequential evaluator calls: lhs ConvGtD=80, rhs ConvGtD=80, CPL25 compare=8, ConvDtG=8, total=176"
+      ],
+      "log": "gbfv-final/gbfv-comparison-ell1024.log"
+    },
+    {
+      "case": "gbfv-sparse-ell1024-1-8",
+      "homomorphic_seconds": 133.943722708,
+      "peak_rss_mib": 22143.48,
+      "log_sha256": "cb61a85e830aceb9a5b735a9a4ad38b9a64430be85d82ae1075689d5074260a8",
+      "exact_checks": [
+        "Exact lhs canonical CPL25 digits after A*p*-offset modular reduction: 32/32"
+      ],
+      "bootstrapping_counts": [
+        "Number of bootstrappings per packed output: ConvGtD=10",
+        "Total sequential evaluator calls: ConvGtD=10"
+      ],
+      "log": "gbfv-final/gbfv-sparse-ell1024-1-8.log"
+    },
+    {
+      "case": "gbfv-sparse-ell1024-1-4",
+      "homomorphic_seconds": 268.323126583,
+      "peak_rss_mib": 22187.42,
+      "log_sha256": "1813d8b5f5e34d16df9b8ae8a6b1a711bc3e2ef9d78ae64bbf7fb4f73df1ab62",
+      "exact_checks": [
+        "Exact lhs canonical CPL25 digits after A*p*-offset modular reduction: 64/64"
+      ],
+      "bootstrapping_counts": [
+        "Number of bootstrappings per packed output: ConvGtD=10",
+        "Total sequential evaluator calls: ConvGtD=20"
+      ],
+      "log": "gbfv-final/gbfv-sparse-ell1024-1-4.log"
+    },
+    {
+      "case": "gbfv-sparse-ell1024-1-2",
+      "homomorphic_seconds": 537.848416083,
+      "peak_rss_mib": 22193.89,
+      "log_sha256": "23163615519664bd9f9f5a9dd2a0451f9cf245bff1803847aec83c061b9b0214",
+      "exact_checks": [
+        "Exact lhs canonical CPL25 digits after A*p*-offset modular reduction: 128/128"
+      ],
+      "bootstrapping_counts": [
+        "Number of bootstrappings per packed output: ConvGtD=10",
+        "Total sequential evaluator calls: ConvGtD=40"
+      ],
+      "log": "gbfv-final/gbfv-sparse-ell1024-1-2.log"
+    }
+  ]
+}

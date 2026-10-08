@@ -1,0 +1,18 @@
+{
+  "estimator_commit": "53da5982597709ba0fdf94ea37a84d822310fd84",
+  "name": "bfv-goldilocks",
+  "kind": "main",
+  "attack": "usvp",
+  "model": "ADPS16",
+  "n": 65536,
+  "log2_q": 1549.9999994680863,
+  "h": 192,
+  "sigma": 3.2,
+  "samples": "infinity",
+  "status": "finite_estimate",
+  "log2_rop": 111.544,
+  "seconds": 0.032986500300467014,
+  "resource_status": "passed",
+  "peak_rss_mib": 297.47,
+  "note": "Separate cost-model comparison, not included in the MATZOV portfolio minimum."
+}

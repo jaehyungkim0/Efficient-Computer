@@ -1,0 +1,18 @@
+{
+  "suite": "full",
+  "gomaxprocs": 1,
+  "source_sha256": {
+    "examples/singleparty/ckks_bootstrapping/slim/conv-btd-sign-65537.go": "30b570f29bef5533561e446d0d8828bfeeae50055e700bd30d2adc0e343aff92",
+    "examples/singleparty/ckks_bootstrapping/slim/conv-btd-goldilocks.go": "0841dcf69b2d06682c208682ed3c5a694d1dffc5f9949a0a49eb308f4f8bbdd9",
+    "examples/singleparty/ckks_bootstrapping/slim/conv-gbfv-to-cpl25.go": "d5f66cee80ff3df694b730dd82b73307483d7f6268d4d4e67f5b400c79c0786b",
+    "examples/singleparty/ckks_bootstrapping/slim/returnpath/bfv.go": "05da5b5d88db87b8bfab87893aff6f7c9aef75091314434ecc11ac6aa76b2af0",
+    "examples/singleparty/ckks_bootstrapping/slim/returnpath/bfv_test.go": "9b55b1b45c8a80ef4bf2061a5ef2615fac22249efc810ad1ba6f7404ed1127b2",
+    "examples/singleparty/ckks_bootstrapping/slim/returnpath/gbfv.go": "fa61a5bc4ad293c8fe0468840a900e7a27e26ada7af87461473c6c87c52a99b0",
+    "examples/singleparty/ckks_bootstrapping/slim/returnpath/gbfv_test.go": "1fffea55bfc7f9ce27712a37a5c86f90d678f4b24900ae6e5ffa99377642a0d3",
+    "examples/singleparty/ckks_bootstrapping/slim/returnpath/inputs.go": "4bb3dfa768dc962688e0ecb4f01d2a85932840089c0b73063579a945fab365b9",
+    "examples/singleparty/ckks_bootstrapping/slim/returnpath/inputs_test.go": "5cb7ae6775191616d373427a218f4538f99f80ea7d19c780cfa031b81bc0b173",
+    "examples/singleparty/ckks_bootstrapping/slim/carrier/lift.go": "99e435fb8bd40196e9ee2abca787b2e8afdcbc318f67fa21dc055fd4dd0597e2",
+    "examples/singleparty/ckks_bootstrapping/slim/carrier/lift_test.go": "10f804004034ece7fe501084db19a563310be69e61ace432c9248ce51512766f",
+    "circuits/ckks/bootstrapping/keys.go": "4a0ed31890fc9c26a94225a3f6e92859336e77db90d15a5c8eff370f25118c82"
+  }
+}

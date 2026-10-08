@@ -1,0 +1,27 @@
+Experiment execution: GOMAXPROCS=1 (single-threaded Go computation)
+Bootstrapping parameters: logN=16, logSlots=15, H(192; 32), sigma={3.200000 19.200000}, logQP=1469.999998, levels=25, scale=2^50
+
+Generating bootstrapping evaluation keys...
+Done
+Running ConvBtD + comparison + sign evaluation for p=65537, beta=16
+Timing starts from coefficient-encoded level-0 input; ConvBtD includes the initial ModUp, placement, and public pK offset.
+Selected operation: bfv-sign
+Input coverage: 21 boundary values plus random residues; equality and adjacent-value comparisons included.
+End-to-end BFV sign time: 4m14.166715667s
+BFV sign timing breakdown: ConvBtD=3m51.926033166s, Kim25 sign=21.749071334s, ConvDtB=491.610417ms
+Return-path bootstrappings: ConvDtB=0 (polynomial cleaning, StC, public scale alignment)
+Bootstrapping breakdown: ConvBtD=32, Kim25 sign=3, total=35
+Final BFV sign coefficients: 32768/32768; nonzero inactive coefficients=0
+Final BFV sign decoded noise: max Log2=-29.47639593275226, mean Log2=-32.03183615762663
+Exact lhs output matches: 32768/32768, max |out-want|=0
+Exact sign matches: 32768/32768, max |sign-want|=0
+Max integer error in Log 2: -Inf
+Max digit noise in Log 2: -23.110400650566387
+Mean digit noise in Log 2: -29.019139776323833
+-----------------------------------
+
+Total Max Integer Error in Log 2 -Inf
+Average output mismatch rate 0
+Average sign mismatch rate 0
+Total measured BFV sign time 4m14.166715667s
+Average BFV sign time 4m14.166715667s

@@ -1,0 +1,31 @@
+Experiment execution: GOMAXPROCS=1 (single-threaded Go computation)
+Bootstrapping parameters: logN=16, logSlots=15, H(192; 32), sigma={3.200000 19.200000}, logQP=1469.999998, levels=25, scale=2^50
+
+Generating bootstrapping evaluation keys...
+Done
+Running ConvBtD + comparison + sign evaluation for p=8179, beta=16
+Timing starts from coefficient-encoded level-0 input; ConvBtD includes the initial ModUp, placement, and public pK offset.
+Sign uses linear top-bit extraction: output = 1 - limb[3], with zero comparison bootstrappings.
+Reduction uses the generic Montgomery REDC path.
+Generic REDC constants: R=1048576, -p^{-1} mod R=1011397, R mod p=1664
+Selected operation: bfv-sign
+Input coverage: 16 boundary values plus random residues; equality and adjacent-value comparisons included.
+End-to-end BFV sign time: 7m31.824318833s
+BFV sign timing breakdown: ConvBtD=7m31.360038959s, Kim25 sign=671.292µs, ConvDtB=463.607916ms
+Return-path bootstrappings: ConvDtB=0 (polynomial cleaning, StC, public scale alignment)
+Bootstrapping breakdown: ConvBtD=62, Kim25 sign=0, total=62
+lhs ConvBtD substeps: digit extraction=5, REDC MultExt(x,rho)=0, REDC Mult(Low(T),eta)=17, REDC MultExt(n,p)=0, REDC High(T+MultExt(n,p))=29, REDC CondSub(y,p)=11, total=62
+Final BFV sign coefficients: 32768/32768; nonzero inactive coefficients=0
+Final BFV sign decoded noise: max Log2=-31.283984404380767, mean Log2=-33.48056074950032
+Exact lhs output matches: 32768/32768, max |out-want|=0
+Exact sign matches: 32768/32768, max |sign-want|=0
+Max integer error in Log 2: -Inf
+Max digit noise in Log 2: -23.113516668378026
+Mean digit noise in Log 2: -32.21047413819219
+-----------------------------------
+
+Total Max Integer Error in Log 2 -Inf
+Average output mismatch rate 0
+Average sign mismatch rate 0
+Total measured BFV sign time 7m31.824318833s
+Average BFV sign time 7m31.824318833s
