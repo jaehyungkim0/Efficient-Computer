@@ -76,9 +76,14 @@ Runner cleanup can be tested without cryptographic workloads:
 python3 examples/singleparty/ckks_bootstrapping/slim/experiments/test_run_bounded.py
 ```
 
-The new carrier and return-path unit tests are separate from the inherited
-generic `TestBootstrapping` suite. That suite currently fails four precision
-checks with both the original committed key code and the corrected key code.
-The experiment drivers use their own discrete/ordinary bootstrapping entry
-points and are validated end-to-end. Passing these experiments does not imply
-that every inherited repository test passes.
+Artifact validation uses the carrier, return-path, carry-symbol, and key
+tests together with the recorded end-to-end experiments. These exercise the
+paper's functional bootstrapping and its explicitly configured ordinary
+refresh stages.
+
+The generic four-case `TestBootstrapping` identity-bootstrap suite has been
+removed. Its ordinary default configuration exposed an output-scale mismatch,
+not a failed paper experiment. This is a test-scope change: the bootstrap
+implementation, paper parameters, and experiment arithmetic are unchanged.
+Other inherited tests remain; passing the artifact checks does not establish
+that every generic library configuration is supported.

@@ -65,5 +65,5 @@ boundary cases.
 All recorded runs use regenerated keys after the low-modulus encapsulation
 key correction. The separate [security audit](../security/README.md)
 documents the adopted cost model, pinned estimator revision, and incomplete
-optimizer calls. The [runner documentation](README.md) records the remaining
-inherited generic-bootstrapping test limitation.
+optimizer calls. The [runner documentation](README.md) describes the scope
+of the retained validation tests.

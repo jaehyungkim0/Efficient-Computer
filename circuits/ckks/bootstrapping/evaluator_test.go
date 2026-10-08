@@ -1,6 +1,7 @@
 package bootstrapping
 
 import (
+	"flag"
 	"fmt"
 	"runtime"
 	"sync"
@@ -14,6 +15,8 @@ import (
 	"github.com/tuneinsight/lattigo/v6/utils/sampling"
 )
 
+var flagLongTest = flag.Bool("long", false, "run the long test suite (all parameters + secure bootstrapping). Overrides -short and requires -timeout=0.")
+var printPrecisionStats = flag.Bool("print-precision", false, "print precision stats")
 var minPrec float64 = 12.0
 
 func ParamsToString(params ckks.Parameters, LogSlots int, opname string) string {
